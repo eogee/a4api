@@ -1,0 +1,115 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #f2f2f2;
+  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  color: #333;
+}
+
+/* 顶部 */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 24px;
+  background: #fff;
+  border-bottom: 1px solid #e6e6e6;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .05);
+}
+
+.app-title {
+  font-size: 18px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status-bar {
+  flex: 1;
+  font-size: 14px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-label { color: #888; }
+
+.status-text { font-weight: 600; }
+
+.status-text.status-active { color: #16b777; }
+
+.header-actions { white-space: nowrap; }
+
+/* 主体 */
+.app-main {
+  max-width: 1100px;
+  margin: 24px auto;
+  padding: 0 24px;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 14px;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+/* 卡片 */
+.config-card {
+  position: relative;
+  background: #fff;
+  border: 1px solid #e6e6e6;
+  border-radius: 8px;
+  padding: 18px 18px 14px;
+  transition: box-shadow .2s, border-color .2s;
+}
+
+.config-card:hover { box-shadow: 0 3px 12px rgba(0, 0, 0, .08); }
+
+.config-card.card-active {
+  border-color: #16b777;
+  border-width: 2px;
+}
+
+.active-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: #16b777;
+  color: #fff;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.card-name {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  padding-right: 60px;
+}
+
+.card-meta { font-size: 13px; color: #888; line-height: 1.7; }
+
+.card-actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+}
+
+.empty-tip {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: #999;
+  padding: 60px 0;
+  font-size: 14px;
+}
+
+/* 弹窗表单 */
+.config-form { padding: 18px 24px; }

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API 切换助手</title>
+  <link rel="stylesheet" href="layui/css/layui.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-header">
+    <div class="app-title">⚡ API 切换助手</div>
+    <div class="status-bar" id="status-bar">
+      <span class="status-label">当前生效：</span>
+      <span id="status-text" class="status-text">加载中…</span>
+    </div>
+    <div class="header-actions">
+      <button class="layui-btn layui-btn-normal" id="btn-add">新增配置</button>
+    </div>
+  </div>
+
+  <div class="app-main">
+    <div class="section-title">配置方案</div>
+    <div id="card-grid" class="card-grid">
+      <div class="empty-tip">加载中…</div>
+    </div>
+  </div>
+
+  <script src="layui/layui.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+[project]
+name = "api-switch"
+version = "0.1.0"
+description = "Claude Code LLM API 切换工具"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "pywebview>=5.0",
+]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.0",
+]
