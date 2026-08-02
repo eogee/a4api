@@ -15,6 +15,12 @@ TEMPLATES = [
         "api_type": "anthropic",
         "is_custom": False,
     },
+    {
+        "name": "火山方舟",
+        "api_base": "https://ark.cn-beijing.volces.com/api/plan",
+        "api_type": "anthropic",
+        "is_custom": False,
+    },
 ]
 
 
