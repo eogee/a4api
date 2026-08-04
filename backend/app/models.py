@@ -26,6 +26,7 @@ class Configuration(Base):
     provider_id = Column(Integer, ForeignKey("providers.id"), nullable=False)
     api_key_encrypted = Column(Text, nullable=False)  # DPAPI 加密后的 base64
     model = Column(String(100), nullable=False)
+    targets = Column(String(50), nullable=False, default="claude")  # claude / codex / claude,codex
     is_active = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now)
 

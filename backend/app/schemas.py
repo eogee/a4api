@@ -35,6 +35,7 @@ class ConfigBase(BaseModel):
     provider_id: int
     api_key: str = Field(..., description="明文 Key，后端加密存储")
     model: str
+    targets: str = "claude"  # claude / codex / claude,codex
 
 
 class ConfigCreate(ConfigBase):
@@ -46,6 +47,7 @@ class ConfigUpdate(BaseModel):
     provider_id: Optional[int] = None
     api_key: Optional[str] = None
     model: Optional[str] = None
+    targets: Optional[str] = None
 
 
 class ConfigOut(BaseModel):
@@ -53,6 +55,7 @@ class ConfigOut(BaseModel):
     name: str
     provider_id: int
     model: str
+    targets: str = "claude"
     is_active: bool
     created_at: datetime
     provider: Optional[ProviderOut] = None
@@ -68,6 +71,7 @@ class SwitchResult(BaseModel):
     success: bool
     message: str
     backup_path: Optional[str] = None
+    codex_backup_path: Optional[str] = None
     restart: bool = False
     process_info: Optional[dict] = None
 
@@ -76,3 +80,6 @@ class StatusOut(BaseModel):
     active_config: Optional[ConfigOut] = None
     settings_file_exists: bool
     current_model: Optional[str] = None
+    codex_file_exists: bool = False
+    current_codex_model: Optional[str] = None
+    current_codex_provider: Optional[str] = None

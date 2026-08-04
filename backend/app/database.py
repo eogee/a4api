@@ -65,6 +65,21 @@ engine = create_engine(
 )
 
 
+def ensure_schema() -> None:
+    """轻量迁移：为旧库补充新列（SQLAlchemy create_all 不会修改已存在的表）。"""
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(configurations)"))}
+        if "targets" not in cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE configurations "
+                    "ADD COLUMN targets VARCHAR(50) NOT NULL DEFAULT 'claude'"
+                )
+            )
+
+
 @event.listens_for(engine, "connect")
 def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):
     """SQLite 默认不启用外键约束，这里按连接开启，避免产生孤儿数据。"""

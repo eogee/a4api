@@ -9,6 +9,8 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "sqlalchemy>=2.0",
     "pywebview>=5.0",
+    "tomli>=2.0; python_version < '3.11'",
+    "tomli_w>=1.0",
 ]
 
 [dependency-groups]

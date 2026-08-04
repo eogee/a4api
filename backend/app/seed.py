@@ -33,6 +33,12 @@ TEMPLATES = [
         "api_type": "openai",
         "is_custom": False,
     },
+    {
+        "name": "DeepSeek（OpenAI 兼容）",
+        "api_base": "https://api.deepseek.com/",
+        "api_type": "openai",
+        "is_custom": False,
+    },
 ]
 
 

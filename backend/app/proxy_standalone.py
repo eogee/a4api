@@ -18,6 +18,7 @@ POLL_INTERVAL = 3.0
 
 def _active_openai_config():
     from .database import SessionLocal
+    from .config_manager import target_list
     from .models import Configuration
 
     db = SessionLocal()
@@ -25,6 +26,8 @@ def _active_openai_config():
         c = db.query(Configuration).filter(Configuration.is_active.is_(True)).first()
         if c is None or c.provider is None or c.provider.api_type != "openai":
             return None
+        if "claude" not in target_list(c.targets):
+            return None  # 仅 Codex 目标的方案不需要翻译代理
         return c
     finally:
         db.close()

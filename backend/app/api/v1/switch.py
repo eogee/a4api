@@ -14,10 +14,14 @@ router = APIRouter()
 def get_status(db: Session = Depends(get_db)):
     active = crud.get_active_config(db)
     current = config_manager.read_settings()
+    codex = config_manager.read_codex_settings()
     return schemas.StatusOut(
         active_config=active,
         settings_file_exists=config_manager.settings_path().exists(),
         current_model=current.get("model"),
+        codex_file_exists=config_manager.codex_settings_path().exists(),
+        current_codex_model=codex.get("model"),
+        current_codex_provider=codex.get("model_provider"),
     )
 
 
@@ -45,39 +49,63 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
         raise HTTPException(409, "该配置关联的服务商已被删除，请先编辑或删除此配置方案")
 
     backup_path = None
+    codex_backup_path = None
     try:
         api_key = decrypt_text(config.api_key_encrypted)
         if not api_key:
             raise ValueError("API Key 解密失败")
-        backup_path = config_manager.backup_settings()
         # 先标记生效并提交，独立翻译代理进程才能从数据库找到当前配置
         crud.set_active(db, config)
-        if config.provider.api_type == "openai":
-            # 独立代理进程：应用退出后仍然存活，Claude Code 可继续使用
-            proxy = proxy_standalone.ensure_proxy_running()
-            settings = config_manager.build_settings(
-                config.provider, api_key, config.model, proxy=proxy
+        targets = config_manager.target_list(config.targets)
+        if "claude" in targets:
+            backup_path = config_manager.backup_settings()
+            if config.provider.api_type == "openai":
+                # 独立代理进程：应用退出后仍然存活，Claude Code 可继续使用
+                proxy = proxy_standalone.ensure_proxy_running()
+                settings = config_manager.build_settings(
+                    config.provider, api_key, config.model, proxy=proxy
+                )
+            else:
+                settings = config_manager.build_settings(
+                    config.provider, api_key, config.model
+                )
+            config_manager.atomic_write_settings(settings)
+        if "codex" in targets:
+            if config.provider.api_type != "openai":
+                raise ValueError(
+                    f"Codex 需要 OpenAI 兼容（Responses）接口，"
+                    f"请为「{config.name}」选择 OpenAI 兼容的服务商"
+                )
+            codex_backup_path = config_manager.backup_codex_settings()
+            existing = config_manager.read_codex_settings()
+            codex_settings = config_manager.build_codex_settings(
+                existing, config.provider, api_key, config.model
             )
-        else:
-            settings = config_manager.build_settings(config.provider, api_key, config.model)
-        config_manager.atomic_write_settings(settings)
-        crud.add_log(db, config_id, "success", "切换成功")
+            config_manager.atomic_write_codex_settings(codex_settings)
+        crud.add_log(
+            db, config_id, "success",
+            "切换成功" + ("，Codex 配置已写入" if "codex" in targets else ""),
+        )
     except Exception as e:
         crud.add_log(db, config_id, "failed", str(e))
-        raise HTTPException(500, "切换失败，请查看后端日志")
+        raise HTTPException(500, f"切换失败：{e}")
 
     process_info = None
     restarted = False
-    if body.restart:
+    if body.restart and "claude" in targets:
         process_info = restart_claude()
         restarted = True
-    elif not is_claude_running():
+    elif "claude" in targets and not is_claude_running():
         process_info = {"killed": 0, "started": False, "detail": "未发现运行中的 Claude Code 进程"}
 
+    message = "切换成功"
+    if "codex" in targets:
+        message += "；Codex 配置已写入，重启 Codex 后生效"
     return schemas.SwitchResult(
         success=True,
-        message="切换成功",
+        message=message,
         backup_path=str(backup_path) if backup_path else None,
+        codex_backup_path=str(codex_backup_path) if codex_backup_path else None,
         restart=restarted,
         process_info=process_info,
     )

@@ -103,10 +103,32 @@ body {
 
 .card-meta { font-size: 13px; color: #888; line-height: 1.7; }
 
+.card-targets {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+}
+
+.target-badge {
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: 9px;
+  color: #fff;
+}
+
+.target-claude { background: #d97757; }
+
+.target-codex { background: #1e9fff; }
+
 .card-actions {
   margin-top: 14px;
   display: flex;
   gap: 8px;
+}
+
+.target-checkboxes .layui-form-checkbox {
+  margin-right: 12px;
 }
 
 .empty-tip {

@@ -37,11 +37,19 @@ layui.use(['layer', 'form', 'element'], function () {
       var el = document.querySelector('form[lay-filter="config-form"] [name="' + name + '"]');
       return el ? el.value : '';
     }
+    var targets = [];
+    if (document.querySelector('form[lay-filter="config-form"] [name="target_claude"]').checked) {
+      targets.push('claude');
+    }
+    if (document.querySelector('form[lay-filter="config-form"] [name="target_codex"]').checked) {
+      targets.push('codex');
+    }
     return {
       name: val('name'),
       provider_id: val('provider_id'),
       api_key: val('api_key'),
-      model: val('model')
+      model: val('model'),
+      targets: targets.join(',')
     };
   }
 
@@ -55,6 +63,11 @@ layui.use(['layer', 'form', 'element'], function () {
         var text = c.name + '（' + pname + ' · ' + c.model + '）';
         if (s.current_model && s.current_model !== c.model) {
           text += '  ⚠ 配置文件内为 ' + s.current_model;
+        }
+        if ((c.targets || '').indexOf('codex') !== -1) {
+          text += s.current_codex_model
+            ? ' · Codex: ' + s.current_codex_model
+            : ' · Codex 待配置';
         }
         el.textContent = text;
         el.classList.add('status-active');
@@ -154,7 +167,9 @@ layui.use(['layer', 'form', 'element'], function () {
           '<div class="layui-input-block"><select name="api_type">' +
             '<option value="anthropic">Anthropic（Claude Code 原生）</option>' +
             '<option value="openai">OpenAI 兼容（走本地翻译代理）</option>' +
-          '</select></div>' +
+          '</select>' +
+          '<div class="provider-hint" style="color:#999;">Codex 需使用 OpenAI 兼容（Responses）接口；如需切换 Codex，请选择 OpenAI 兼容。</div>' +
+          '</div>' +
         '</div>' +
         '<div class="layui-form-item">' +
           '<label class="layui-form-label">自定义</label>' +
@@ -229,15 +244,26 @@ layui.use(['layer', 'form', 'element'], function () {
   });
 
   /* ---------- 卡片 ---------- */
+  function targetBadges(targets) {
+    var list = (targets || 'claude').split(',');
+    var html = '';
+    list.forEach(function (t) {
+      if (t === 'codex') html += '<span class="target-badge target-codex">Codex</span>';
+      else if (t === 'claude') html += '<span class="target-badge target-claude">Claude</span>';
+    });
+    return html;
+  }
+
   function buildCard(c) {
     var activeCls = c.is_active ? ' card-active' : '';
     var badge = c.is_active ? '<div class="active-badge">使用中</div>' : '';
     var pname = c.provider ? c.provider.name : ('#' + c.provider_id);
     return '' +
-      '<div class="config-card' + activeCls + '" data-id="' + c.id + '">' +
+      '<div class="config-card' + activeCls + '" data-id="' + c.id + '" data-targets="' + escapeHtml(c.targets) + '">' +
         badge +
         '<div class="card-name">' + escapeHtml(c.name) + '</div>' +
         '<div class="card-meta">' + escapeHtml(pname) + ' · ' + escapeHtml(c.model) + '</div>' +
+        '<div class="card-targets">' + targetBadges(c.targets) + '</div>' +
         '<div class="card-actions">' +
           '<button class="layui-btn layui-btn-sm layui-btn-normal" data-action="switch" data-name="' + escapeHtml(c.name) + '">切换</button>' +
           '<button class="layui-btn layui-btn-sm" data-action="edit">编辑</button>' +
@@ -260,16 +286,24 @@ layui.use(['layer', 'form', 'element'], function () {
   }
 
   /* ---------- 切换 ---------- */
-  function confirmSwitch(id, name) {
+  function confirmSwitch(id, name, targets) {
+    var hasClaude = (targets || '').indexOf('claude') !== -1;
+    var hasCodex = (targets || '').indexOf('codex') !== -1;
+    var restartHtml = hasClaude
+      ? '<label style="display:block;margin-top:16px;font-size:13px;color:#666;">' +
+          '<input type="checkbox" id="chk-restart" style="margin-right:6px;">切换后重启 Claude Code（若正在运行）' +
+        '</label>'
+      : '';
+    var codexNote = hasCodex
+      ? '<p style="font-size:12px;color:#999;margin-top:10px;">Codex 配置写入后需重启 Codex 才生效</p>'
+      : '';
     layer.open({
       type: 1,
       title: '确认切换',
       area: ['420px', 'auto'],
       content: '<div style="padding:20px 24px;">' +
         '<p style="font-size:15px;">确定切换到「' + escapeHtml(name) + '」？</p>' +
-        '<label style="display:block;margin-top:16px;font-size:13px;color:#666;">' +
-          '<input type="checkbox" id="chk-restart" style="margin-right:6px;">切换后重启 Claude Code（若正在运行）' +
-        '</label></div>',
+        restartHtml + codexNote + '</div>',
       btn: ['确认切换', '取消'],
       yes: function (index) {
         var chk = document.getElementById('chk-restart');
@@ -283,7 +317,7 @@ layui.use(['layer', 'form', 'element'], function () {
     apiSend('/switch/' + id, 'POST', { restart: restart }).then(function (res) {
       layer.close(layerIndex);
       var info = res.process_info ? (res.process_info.detail || '') : '';
-      layer.msg('切换成功' + (info ? '，' + info : ''), { icon: 1, time: 2600 });
+      layer.msg((res.message || '切换成功') + (info ? '，' + info : ''), { icon: 1, time: 3200 });
       loadConfigs();
       loadStatus();
       loadProxyStatus();
@@ -326,6 +360,14 @@ layui.use(['layer', 'form', 'element'], function () {
             '<label class="layui-form-label">模型</label>' +
             '<div class="layui-input-block"><input type="text" name="model" class="layui-input" placeholder="如：glm-4.7-flash"></div>' +
           '</div>' +
+          '<div class="layui-form-item">' +
+            '<label class="layui-form-label">应用目标</label>' +
+            '<div class="layui-input-block target-checkboxes">' +
+              '<input type="checkbox" name="target_claude" title="Claude Code" lay-skin="primary" checked>' +
+              '<input type="checkbox" name="target_codex" title="Codex" lay-skin="primary">' +
+            '</div>' +
+            '<div class="layui-form-mid layui-word-aux" style="margin-left:110px;">Codex 需使用 OpenAI 兼容（Responses）接口</div>' +
+          '</div>' +
         '</form>';
 
       if (isEdit) {
@@ -349,6 +391,9 @@ layui.use(['layer', 'form', 'element'], function () {
           document.querySelector('input[name="name"]').value = c.name;
           document.querySelector('select[name="provider_id"]').value = String(c.provider_id);
           document.querySelector('input[name="model"]').value = c.model;
+          var targets = (c.targets || 'claude').split(',');
+          document.querySelector('input[name="target_claude"]').checked = targets.indexOf('claude') !== -1;
+          document.querySelector('input[name="target_codex"]').checked = targets.indexOf('codex') !== -1;
         }
         form.render(null, 'config-form');
         var link = document.getElementById('link-add-provider');
@@ -372,10 +417,15 @@ layui.use(['layer', 'form', 'element'], function () {
           layer.msg('请填写 API Key', { icon: 2 });
           return;
         }
+        if (!data.targets) {
+          layer.msg('请至少选择一个应用目标（Claude Code / Codex）', { icon: 2 });
+          return;
+        }
         var body = {
           name: data.name,
           provider_id: Number(data.provider_id),
-          model: data.model
+          model: data.model,
+          targets: data.targets
         };
         if (data.api_key) body.api_key = data.api_key;
 
@@ -424,7 +474,7 @@ layui.use(['layer', 'form', 'element'], function () {
     var card = btn.closest('.config-card');
     var id = Number(card.getAttribute('data-id'));
     var action = btn.getAttribute('data-action');
-    if (action === 'switch') confirmSwitch(id, btn.getAttribute('data-name'));
+    if (action === 'switch') confirmSwitch(id, btn.getAttribute('data-name'), card.getAttribute('data-targets'));
     else if (action === 'edit') openForm(id);
     else if (action === 'del') confirmDelete(id, btn.getAttribute('data-name'));
   });

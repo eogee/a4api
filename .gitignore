@@ -5,16 +5,12 @@ __pycache__/
 
 # 运行时数据
 backend/database/*.db
-backend/database/backups/
+backend/database/
 
 # 打包产物
 build/
 dist/
 *.spec
-
-# uv
-uv.lock
-.python-version
 
 # 编辑器
 .idea/

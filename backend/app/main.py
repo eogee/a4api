@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import models  # noqa: F401  # 注册模型建表
 from .api.v1 import configs, providers, switch
-from .database import Base, engine
+from .database import Base, engine, ensure_schema
 from .seed import seed_providers
 
 
@@ -31,6 +31,7 @@ def create_app() -> FastAPI:
     )
 
     Base.metadata.create_all(bind=engine)
+    ensure_schema()
     seed_providers()
 
     app.include_router(providers.router, prefix="/api/v1", tags=["providers"])
