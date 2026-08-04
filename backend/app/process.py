@@ -5,24 +5,30 @@ from pathlib import Path
 
 IMAGE_NAMES = ("node.exe", "claude.exe", "claude")
 
+# 使用 PowerShell CIM 查询：wmic 已被弃用，且其表格输出列顺序不稳定、长命令行会折行，
+# 按固定列序解析并不可靠。CIM 输出每行一个纯数字 PID，解析简单稳定。
+_CIM_QUERY = (
+    "Get-CimInstance Win32_Process | "
+    "Where-Object { $_.Name -in ('node.exe','claude.exe','claude') -and "
+    "$_.CommandLine -match 'claude' } | "
+    "ForEach-Object { $_.ProcessId }"
+)
+
 
 def _find_claude_pids() -> list:
-    """通过 wmic 查找命令行中包含 claude 的进程 PID。"""
+    """查找命令行中包含 claude 的进程 PID。"""
     try:
         out = subprocess.run(
-            ["wmic", "process", "get", "processid,name,commandline"],
-            capture_output=True, text=True, timeout=10,
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", _CIM_QUERY],
+            capture_output=True, text=True, timeout=15,
         ).stdout
     except Exception:
         return []
     pids = []
-    for line in out.splitlines()[1:]:
-        parts = line.split()
-        if len(parts) < 2:
-            continue
-        name = parts[0].lower()
-        if name in IMAGE_NAMES and "claude" in line.lower():
-            pids.append(parts[1])
+    for line in out.splitlines():
+        line = line.strip()
+        if line.isdigit():
+            pids.append(line)
     return pids
 
 

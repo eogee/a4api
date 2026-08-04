@@ -3,26 +3,46 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>API 切换助手</title>
+  <title>a4api</title>
   <link rel="stylesheet" href="layui/css/layui.css">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <div class="app-header">
-    <div class="app-title">⚡ API 切换助手</div>
+    <div class="app-title">⚡ a4api</div>
     <div class="status-bar" id="status-bar">
       <span class="status-label">当前生效：</span>
       <span id="status-text" class="status-text">加载中…</span>
     </div>
     <div class="header-actions">
+      <span class="proxy-label" id="proxy-label">代理服务</span>
+      <input type="checkbox" id="proxy-switch" lay-skin="switch" lay-filter="proxy-switch" disabled>
       <button class="layui-btn layui-btn-normal" id="btn-add">新增配置</button>
     </div>
   </div>
 
   <div class="app-main">
-    <div class="section-title">配置方案</div>
-    <div id="card-grid" class="card-grid">
-      <div class="empty-tip">加载中…</div>
+    <div class="layui-tab layui-tab-brief" lay-filter="main-tab">
+      <ul class="layui-tab-title">
+        <li class="layui-this" lay-id="configs">配置方案</li>
+        <li lay-id="providers">供应商管理</li>
+      </ul>
+      <div class="layui-tab-content">
+        <div class="layui-tab-item layui-show">
+          <div id="card-grid" class="card-grid">
+            <div class="empty-tip">加载中…</div>
+          </div>
+        </div>
+        <div class="layui-tab-item">
+          <div class="providers-header">
+            <span class="providers-title">供应商模板</span>
+            <button class="layui-btn layui-btn-normal layui-btn-sm" id="btn-add-provider">新增供应商</button>
+          </div>
+          <div id="provider-list" class="provider-list">
+            <div class="empty-tip">加载中…</div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 

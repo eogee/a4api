@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ... import config_manager, crud, schemas
+from ... import config_manager, crud, proxy_standalone, schemas
 from ...crypto import decrypt_text
 from ...database import get_db
 from ...process import is_claude_running, restart_claude
@@ -21,11 +21,28 @@ def get_status(db: Session = Depends(get_db)):
     )
 
 
+@router.get("/proxy/status")
+def proxy_status():
+    """查询本地翻译代理是否在运行。"""
+    return proxy_standalone.is_proxy_running()
+
+
+@router.post("/proxy/stop")
+def proxy_stop():
+    """停止本地翻译代理进程。"""
+    result = proxy_standalone.stop_proxy()
+    if not result.get("stopped"):
+        raise HTTPException(409, result.get("detail", "代理未在运行"))
+    return result
+
+
 @router.post("/switch/{config_id}", response_model=schemas.SwitchResult)
 def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Depends(get_db)):
     config = crud.get_config(db, config_id)
     if not config:
         raise HTTPException(404, "配置方案不存在")
+    if config.provider is None:
+        raise HTTPException(409, "该配置关联的服务商已被删除，请先编辑或删除此配置方案")
 
     backup_path = None
     try:
@@ -33,15 +50,21 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
         if not api_key:
             raise ValueError("API Key 解密失败")
         backup_path = config_manager.backup_settings()
-        settings = config_manager.build_settings(
-            config.provider, api_key, config.model, config.temperature
-        )
-        config_manager.atomic_write_settings(settings)
+        # 先标记生效并提交，独立翻译代理进程才能从数据库找到当前配置
         crud.set_active(db, config)
+        if config.provider.api_type == "openai":
+            # 独立代理进程：应用退出后仍然存活，Claude Code 可继续使用
+            proxy = proxy_standalone.ensure_proxy_running()
+            settings = config_manager.build_settings(
+                config.provider, api_key, config.model, proxy=proxy
+            )
+        else:
+            settings = config_manager.build_settings(config.provider, api_key, config.model)
+        config_manager.atomic_write_settings(settings)
         crud.add_log(db, config_id, "success", "切换成功")
     except Exception as e:
         crud.add_log(db, config_id, "failed", str(e))
-        raise HTTPException(500, f"切换失败：{e}")
+        raise HTTPException(500, "切换失败，请查看后端日志")
 
     process_info = None
     restarted = False

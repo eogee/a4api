@@ -17,8 +17,20 @@ TEMPLATES = [
     },
     {
         "name": "火山方舟",
-        "api_base": "https://ark.cn-beijing.volces.com/api/plan",
+        "api_base": "https://ark.cn-beijing.volces.com/api/coding",
         "api_type": "anthropic",
+        "is_custom": False,
+    },
+    {
+        "name": "智谱OpenAI兼容接口",
+        "api_base": "https://open.bigmodel.cn/api/paas/v4",
+        "api_type": "openai",
+        "is_custom": False,
+    },
+    {
+        "name": "本地llmstudio接口",
+        "api_base": "http://127.0.0.0:1234/v1",
+        "api_type": "openai",
         "is_custom": False,
     },
 ]

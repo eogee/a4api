@@ -20,7 +20,7 @@ def _frontend_dir() -> Path:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="api-switch", version="0.1.0")
+    app = FastAPI(title="a4api", version="0.1.0")
 
     app.add_middleware(
         CORSMiddleware,

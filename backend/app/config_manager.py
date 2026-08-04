@@ -13,6 +13,9 @@ DEFAULT_BACKUP_KEEP = 5
 
 
 def settings_path() -> Path:
+    override = os.environ.get("A4API_SETTINGS_PATH")
+    if override:
+        return Path(override)
     return Path.home() / ".claude" / "settings.json"
 
 
@@ -70,12 +73,26 @@ def atomic_write_settings(data: dict) -> None:
         raise
 
 
-def build_settings(provider, api_key: str, model: str, temperature: float = None) -> dict:
+def build_settings(provider, api_key: str, model: str, proxy: dict = None) -> dict:
     """按服务商协议类型生成 settings.json 内容。
 
-    一期模板均为 anthropic 协议（Claude Code 使用 ANTHROPIC_* 环境变量）。
+    anthropic：写 ANTHROPIC_* 环境变量（官方 Claude Code 原生支持）。
+    openai：官方 Claude Code 不识别 OPENAI_* 配置，需经由本地翻译代理
+    （openai_proxy）把 Anthropic 请求转成 OpenAI 格式；这里把
+    ANTHROPIC_BASE_URL 指向本地代理并写入代理鉴权 token。
     """
-    settings = {
+    if provider.api_type == "openai":
+        if not proxy or not proxy.get("base_url") or not proxy.get("token"):
+            raise ValueError("OpenAI 类型服务商需要先启动本地翻译代理")
+        return {
+            "env": {
+                "ANTHROPIC_AUTH_TOKEN": proxy["token"],
+                "ANTHROPIC_BASE_URL": proxy["base_url"],
+            },
+            "model": model,
+            "alwaysThinkingEnabled": False,
+        }
+    return {
         "env": {
             "ANTHROPIC_AUTH_TOKEN": api_key,
             "ANTHROPIC_BASE_URL": provider.api_base,
@@ -83,4 +100,3 @@ def build_settings(provider, api_key: str, model: str, temperature: float = None
         "model": model,
         "alwaysThinkingEnabled": False,
     }
-    return settings

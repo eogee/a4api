@@ -25,7 +25,7 @@ colorama==0.4.6 ; sys_platform == 'win32'
 exceptiongroup==1.3.1 ; python_full_version < '3.11'
     # via anyio
 fastapi==0.141.1
-    # via api-switch
+    # via a4api
 greenlet==3.5.4 ; platform_machine == 'AMD64' or platform_machine == 'WIN32' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'ppc64le' or platform_machine == 'win32' or platform_machine == 'x86_64'
     # via sqlalchemy
 h11==0.16.0
@@ -82,7 +82,7 @@ python-dotenv==1.2.2
 pythonnet==3.1.0 ; sys_platform == 'win32'
     # via pywebview
 pywebview==6.2.1
-    # via api-switch
+    # via a4api
 pywin32-ctypes==0.2.3 ; sys_platform == 'win32'
     # via pyinstaller
 pyyaml==6.0.3
@@ -92,7 +92,7 @@ qtpy==2.4.3 ; sys_platform == 'openbsd6'
 setuptools==83.0.0
     # via pyinstaller
 sqlalchemy==2.0.51
-    # via api-switch
+    # via a4api
 starlette==1.3.1
     # via fastapi
 typing-extensions==4.16.0
@@ -112,7 +112,7 @@ typing-inspection==0.4.2
     #   fastapi
     #   pydantic
 uvicorn==0.52.0
-    # via api-switch
+    # via a4api
 uvloop==0.22.1 ; platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'
     # via uvicorn
 watchfiles==1.2.0

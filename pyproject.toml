@@ -1,5 +1,5 @@
 [project]
-name = "api-switch"
+name = "a4api"
 version = "0.1.0"
 description = "Claude Code LLM API 切换工具"
 readme = "README.md"

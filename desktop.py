@@ -31,9 +31,15 @@ def start_server(port: int) -> None:
 
 
 def main() -> None:
+    if "--proxy" in sys.argv:
+        from backend.app.proxy_standalone import main as proxy_main
+
+        proxy_main()
+        return
+
     if not acquire():
         import ctypes
-        ctypes.windll.user32.MessageBoxW(None, "api-switch 已在运行中。", "提示", 0x40)
+        ctypes.windll.user32.MessageBoxW(None, "a4api 已在运行中。", "提示", 0x40)
         return
 
     port = find_free_port()
@@ -41,7 +47,7 @@ def main() -> None:
     t.start()
 
     webview.create_window(
-        "API 切换助手",
+        "a4api",
         f"http://127.0.0.1:{port}",
         width=1000,
         height=720,

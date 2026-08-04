@@ -39,7 +39,7 @@ def main() -> None:
         sys.executable, "-m", "PyInstaller",
         "--onefile",
         "--windowed",
-        "--name", "api-switch",
+        "--name", "a4api",
         "--add-data", f"{frontend}{sep}frontend",
     ]
     if resources.exists() and any(resources.iterdir()):
@@ -50,7 +50,7 @@ def main() -> None:
 
     print("执行命令：", " ".join(cmd))
     subprocess.run(cmd, cwd=str(ROOT), check=True)
-    print("\n打包完成：dist/api-switch.exe")
+    print("\n打包完成：dist/a4api.exe")
 
 
 if __name__ == "__main__":

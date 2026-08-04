@@ -1,7 +1,10 @@
-layui.use(['layer', 'form'], function () {
+layui.use(['layer', 'form', 'element'], function () {
   var layer = layui.layer;
   var form = layui.form;
+  var element = layui.element;
   var API = '/api/v1';
+
+  var providerReturnToConfig = false;
 
   /* ---------- 工具 ---------- */
   function escapeHtml(s) {
@@ -38,8 +41,7 @@ layui.use(['layer', 'form'], function () {
       name: val('name'),
       provider_id: val('provider_id'),
       api_key: val('api_key'),
-      model: val('model'),
-      temperature: val('temperature')
+      model: val('model')
     };
   }
 
@@ -65,18 +67,177 @@ layui.use(['layer', 'form'], function () {
     });
   }
 
+  /* ---------- 代理服务开关 ---------- */
+  function loadProxyStatus() {
+    apiGet('/proxy/status').then(function (s) {
+      var sw = document.getElementById('proxy-switch');
+      sw.checked = !!s.running;
+      sw.disabled = !s.running;
+      document.getElementById('proxy-label').textContent =
+        s.running ? '代理服务（运行中）' : '代理服务';
+      form.render('switch');
+    }).catch(function () {});
+  }
+
+  form.on('switch(proxy-switch)', function (data) {
+    if (data.elem.checked) return; // 只允许关闭，不允许手动开启
+    layer.confirm(
+      '关闭后当前 OpenAI 服务商将无法使用，需要重新切换配置才能恢复。确定关闭代理服务吗？',
+      { title: '关闭代理服务' },
+      function (index) {
+        apiSend('/proxy/stop', 'POST', {}).then(function () {
+          layer.close(index);
+          layer.msg('代理服务已关闭', { icon: 1 });
+          loadProxyStatus();
+        }).catch(function (e) {
+          layer.close(index);
+          layer.msg(e.message, { icon: 2 });
+          loadProxyStatus();
+        });
+      },
+      function () {
+        // 取消：恢复为开启状态
+        document.getElementById('proxy-switch').checked = true;
+        form.render('switch');
+      }
+    );
+  });
+
+  /* ---------- 供应商管理 ---------- */
+  function protocolLabel(t) {
+    return t === 'openai' ? 'OpenAI 兼容' : 'Anthropic';
+  }
+
+  function loadProviders() {
+    apiGet('/providers').then(function (list) {
+      var box = document.getElementById('provider-list');
+      if (!list.length) {
+        box.innerHTML = '<div class="empty-tip">还没有供应商，点击右上角「新增供应商」创建</div>';
+        return;
+      }
+      var rows = list.map(function (p) {
+        return '<tr>' +
+          '<td>' + escapeHtml(p.name) + '</td>' +
+          '<td class="provider-base">' + escapeHtml(p.api_base) + '</td>' +
+          '<td>' + escapeHtml(protocolLabel(p.api_type)) + '</td>' +
+          '<td>' + (p.is_custom ? '自定义' : '预置') + '</td>' +
+          '<td class="provider-actions">' +
+            '<button class="layui-btn layui-btn-xs" data-provider-action="edit" data-id="' + p.id + '">编辑</button>' +
+            '<button class="layui-btn layui-btn-xs layui-btn-danger layui-btn-primary" data-provider-action="del" data-id="' + p.id + '" data-name="' + escapeHtml(p.name) + '">删除</button>' +
+          '</td>' +
+        '</tr>';
+      }).join('');
+      box.innerHTML =
+        '<table class="layui-table"><thead><tr>' +
+          '<th>名称</th><th>Base URL</th><th>协议</th><th>来源</th><th style="width:150px">操作</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table>';
+    }).catch(function (e) {
+      document.getElementById('provider-list').innerHTML =
+        '<div class="empty-tip">加载失败：' + escapeHtml(e.message) + '</div>';
+    });
+  }
+
+  function openProviderForm(editId) {
+    var isEdit = editId != null;
+    var html = '' +
+      '<form class="layui-form provider-form" lay-filter="provider-form">' +
+        '<div class="layui-form-item">' +
+          '<label class="layui-form-label">名称</label>' +
+          '<div class="layui-input-block"><input type="text" name="name" class="layui-input" placeholder="如：硅基流动"></div>' +
+        '</div>' +
+        '<div class="layui-form-item">' +
+          '<label class="layui-form-label">Base URL</label>' +
+          '<div class="layui-input-block"><input type="text" name="api_base" class="layui-input" placeholder="如：https://api.siliconflow.cn/v1"></div>' +
+        '</div>' +
+        '<div class="layui-form-item">' +
+          '<label class="layui-form-label">协议类型</label>' +
+          '<div class="layui-input-block"><select name="api_type">' +
+            '<option value="anthropic">Anthropic（Claude Code 原生）</option>' +
+            '<option value="openai">OpenAI 兼容（走本地翻译代理）</option>' +
+          '</select></div>' +
+        '</div>' +
+        '<div class="layui-form-item">' +
+          '<label class="layui-form-label">自定义</label>' +
+          '<div class="layui-input-block"><input type="checkbox" name="is_custom" lay-skin="switch" checked></div>' +
+        '</div>' +
+      '</form>';
+
+    layer.open({
+      type: 1,
+      title: isEdit ? '编辑供应商' : '新增供应商',
+      area: ['500px', 'auto'],
+      content: html,
+      success: function () {
+        if (isEdit) {
+          apiGet('/providers/' + editId).then(function (p) {
+            document.querySelector('input[name="name"]').value = p.name;
+            document.querySelector('input[name="api_base"]').value = p.api_base;
+            document.querySelector('select[name="api_type"]').value = p.api_type;
+            document.querySelector('input[name="is_custom"]').checked = !!p.is_custom;
+            form.render(null, 'provider-form');
+          });
+        } else {
+          form.render(null, 'provider-form');
+        }
+      },
+      btn: ['保存', '取消'],
+      yes: function (index) {
+        var name = document.querySelector('input[name="name"]').value.trim();
+        var apiBase = document.querySelector('input[name="api_base"]').value.trim();
+        var apiType = document.querySelector('select[name="api_type"]').value;
+        var isCustom = document.querySelector('input[name="is_custom"]').checked;
+        if (!name || !apiBase) {
+          layer.msg('请填写名称和 Base URL', { icon: 2 });
+          return;
+        }
+        var body = { name: name, api_base: apiBase, api_type: apiType, is_custom: isCustom };
+        var req = isEdit
+          ? apiSend('/providers/' + editId, 'PUT', body)
+          : apiSend('/providers', 'POST', body);
+        req.then(function () {
+          layer.close(index);
+          layer.msg('保存成功', { icon: 1 });
+          loadProviders();
+          if (!isEdit && providerReturnToConfig) {
+            providerReturnToConfig = false;
+            element.tabChange('main-tab', 'configs');
+            openForm(null);
+          }
+        }).catch(function (e) {
+          layer.msg(e.message, { icon: 2 });
+        });
+      }
+    });
+  }
+
+  function confirmDeleteProvider(id, name) {
+    layer.confirm('确定删除供应商「' + escapeHtml(name) + '」？' +
+      '<br><span style="font-size:12px;color:#999;">该供应商下有配置方案时无法删除</span>',
+      { title: '删除确认' }, function (index) {
+        apiSend('/providers/' + id, 'DELETE', {}).then(function () {
+          layer.close(index);
+          layer.msg('已删除', { icon: 1 });
+          loadProviders();
+        }).catch(function (e) {
+          layer.msg(e.message, { icon: 2 });
+        });
+      });
+  }
+
+  element.on('tab(main-tab)', function (data) {
+    if (data.index === 1) loadProviders();
+  });
+
   /* ---------- 卡片 ---------- */
   function buildCard(c) {
     var activeCls = c.is_active ? ' card-active' : '';
     var badge = c.is_active ? '<div class="active-badge">使用中</div>' : '';
     var pname = c.provider ? c.provider.name : ('#' + c.provider_id);
-    var temp = c.temperature != null ? c.temperature : 0.7;
     return '' +
       '<div class="config-card' + activeCls + '" data-id="' + c.id + '">' +
         badge +
         '<div class="card-name">' + escapeHtml(c.name) + '</div>' +
         '<div class="card-meta">' + escapeHtml(pname) + ' · ' + escapeHtml(c.model) + '</div>' +
-        '<div class="card-meta">温度：' + escapeHtml(temp) + '</div>' +
         '<div class="card-actions">' +
           '<button class="layui-btn layui-btn-sm layui-btn-normal" data-action="switch" data-name="' + escapeHtml(c.name) + '">切换</button>' +
           '<button class="layui-btn layui-btn-sm" data-action="edit">编辑</button>' +
@@ -125,6 +286,7 @@ layui.use(['layer', 'form'], function () {
       layer.msg('切换成功' + (info ? '，' + info : ''), { icon: 1, time: 2600 });
       loadConfigs();
       loadStatus();
+      loadProxyStatus();
     }).catch(function (e) {
       layer.close(layerIndex);
       layer.msg(e.message, { icon: 2, time: 3000 });
@@ -135,7 +297,8 @@ layui.use(['layer', 'form'], function () {
   function providerOptions(providers, selected) {
     return providers.map(function (p) {
       var sel = (selected && p.id === selected) ? ' selected' : '';
-      return '<option value="' + p.id + '"' + sel + '>' + escapeHtml(p.name) + '</option>';
+      var tag = p.api_type === 'openai' ? '（OpenAI）' : '';
+      return '<option value="' + p.id + '"' + sel + '>' + escapeHtml(p.name) + tag + '</option>';
     }).join('');
   }
 
@@ -150,7 +313,10 @@ layui.use(['layer', 'form'], function () {
           '</div>' +
           '<div class="layui-form-item">' +
             '<label class="layui-form-label">服务商</label>' +
-            '<div class="layui-input-block"><select name="provider_id">' + providerOptions(providers) + '</select></div>' +
+            '<div class="layui-input-block">' +
+              '<select name="provider_id">' + providerOptions(providers) + '</select>' +
+              '<div class="provider-hint"><a href="javascript:;" id="link-add-provider">没有你的供应商？点此添加</a></div>' +
+            '</div>' +
           '</div>' +
           '<div class="layui-form-item">' +
             '<label class="layui-form-label">API Key</label>' +
@@ -159,10 +325,6 @@ layui.use(['layer', 'form'], function () {
           '<div class="layui-form-item">' +
             '<label class="layui-form-label">模型</label>' +
             '<div class="layui-input-block"><input type="text" name="model" class="layui-input" placeholder="如：glm-4.7-flash"></div>' +
-          '</div>' +
-          '<div class="layui-form-item">' +
-            '<label class="layui-form-label">温度</label>' +
-            '<div class="layui-input-block"><input type="number" name="temperature" class="layui-input" value="0.7" step="0.1" min="0" max="2"></div>' +
           '</div>' +
         '</form>';
 
@@ -187,11 +349,17 @@ layui.use(['layer', 'form'], function () {
           document.querySelector('input[name="name"]').value = c.name;
           document.querySelector('select[name="provider_id"]').value = String(c.provider_id);
           document.querySelector('input[name="model"]').value = c.model;
-          if (c.temperature != null) {
-            document.querySelector('input[name="temperature"]').value = c.temperature;
-          }
         }
         form.render(null, 'config-form');
+        var link = document.getElementById('link-add-provider');
+        if (link) {
+          link.addEventListener('click', function () {
+            providerReturnToConfig = true;
+            layer.closeAll();
+            element.tabChange('main-tab', 'providers');
+            openProviderForm(null);
+          });
+        }
       },
       btn: ['保存', '取消'],
       yes: function (index) {
@@ -204,12 +372,10 @@ layui.use(['layer', 'form'], function () {
           layer.msg('请填写 API Key', { icon: 2 });
           return;
         }
-        var temp = parseFloat(data.temperature);
         var body = {
           name: data.name,
           provider_id: Number(data.provider_id),
-          model: data.model,
-          temperature: isNaN(temp) ? 0.7 : temp
+          model: data.model
         };
         if (data.api_key) body.api_key = data.api_key;
 
@@ -247,6 +413,11 @@ layui.use(['layer', 'form'], function () {
     openForm(null);
   });
 
+  document.getElementById('btn-add-provider').addEventListener('click', function () {
+    providerReturnToConfig = false;
+    openProviderForm(null);
+  });
+
   document.getElementById('card-grid').addEventListener('click', function (e) {
     var btn = e.target.closest('[data-action]');
     if (!btn) return;
@@ -258,7 +429,18 @@ layui.use(['layer', 'form'], function () {
     else if (action === 'del') confirmDelete(id, btn.getAttribute('data-name'));
   });
 
+  document.getElementById('provider-list').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-provider-action]');
+    if (!btn) return;
+    var id = Number(btn.getAttribute('data-id'));
+    var action = btn.getAttribute('data-provider-action');
+    if (action === 'edit') openProviderForm(id);
+    else if (action === 'del') confirmDeleteProvider(id, btn.getAttribute('data-name'));
+  });
+
   /* ---------- 初始化 ---------- */
   loadConfigs();
   loadStatus();
+  loadProxyStatus();
+  loadProviders();
 });

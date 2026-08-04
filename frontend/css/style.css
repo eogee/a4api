@@ -38,7 +38,13 @@ body {
 
 .status-text.status-active { color: #16b777; }
 
-.header-actions { white-space: nowrap; }
+.header-actions { white-space: nowrap; display: flex; align-items: center; gap: 10px; }
+
+.proxy-label {
+  font-size: 13px;
+  color: #888;
+  user-select: none;
+}
 
 /* 主体 */
 .app-main {
@@ -109,6 +115,53 @@ body {
   color: #999;
   padding: 60px 0;
   font-size: 14px;
+}
+
+.providers-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.providers-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #555;
+}
+
+.provider-list {
+  background: #fff;
+  border: 1px solid #e6e6e6;
+  border-radius: 8px;
+  padding: 4px 12px 12px;
+}
+
+.provider-list .empty-tip {
+  padding: 40px 0;
+}
+
+.provider-list .layui-table {
+  margin: 8px 0 0;
+}
+
+.provider-base {
+  word-break: break-all;
+  max-width: 380px;
+}
+
+.provider-actions {
+  white-space: nowrap;
+}
+
+.provider-hint {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.provider-hint a {
+  color: #1e9fff;
+  cursor: pointer;
 }
 
 /* 弹窗表单 */

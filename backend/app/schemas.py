@@ -35,7 +35,6 @@ class ConfigBase(BaseModel):
     provider_id: int
     api_key: str = Field(..., description="明文 Key，后端加密存储")
     model: str
-    temperature: Optional[float] = 0.7
 
 
 class ConfigCreate(ConfigBase):
@@ -47,7 +46,6 @@ class ConfigUpdate(BaseModel):
     provider_id: Optional[int] = None
     api_key: Optional[str] = None
     model: Optional[str] = None
-    temperature: Optional[float] = None
 
 
 class ConfigOut(BaseModel):
@@ -55,7 +53,6 @@ class ConfigOut(BaseModel):
     name: str
     provider_id: int
     model: str
-    temperature: Optional[float]
     is_active: bool
     created_at: datetime
     provider: Optional[ProviderOut] = None

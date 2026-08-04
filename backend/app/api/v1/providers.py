@@ -41,7 +41,19 @@ def update_provider(provider_id: int, body: schemas.ProviderUpdate, db: Session 
 
 @router.delete("/{provider_id}")
 def delete_provider(provider_id: int, db: Session = Depends(get_db)):
-    ok = crud.delete_provider(db, provider_id)
-    if not ok:
+    p = crud.get_provider(db, provider_id)
+    if not p:
         raise HTTPException(404, "服务商不存在")
+    linked = (
+        db.query(crud.models.Configuration)
+        .filter(crud.models.Configuration.provider_id == provider_id)
+        .count()
+    )
+    if linked:
+        raise HTTPException(
+            409,
+            f"该服务商下还有 {linked} 个配置方案，请先删除这些配置方案",
+        )
+    db.delete(p)
+    db.commit()
     return {"success": True}
