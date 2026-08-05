@@ -20,6 +20,12 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from .responses_translator import (
+    build_payload as _build_responses_payload,
+    translate_response as _translate_responses_response,
+    translate_stream as _translate_responses_stream,
+)
+
 PROXY_HOST = "127.0.0.1"
 PROXY_PORT_START = 17890
 PROXY_PORT_END = 17899
@@ -743,6 +749,132 @@ async def messages(request: Request):
 @proxy_app.api_route("/v1/api/hello", methods=["GET", "HEAD", "POST"])
 async def _hello():
     return JSONResponse({"ok": True})
+
+
+@proxy_app.get("/v1/api/version")
+async def _version():
+    """返回代理能力版本，供宿主工具校验当前代理是否支持 Codex Responses。"""
+    return {
+        "name": "a4api-proxy",
+        "version": 2,
+        "features": ["anthropic_messages", "openai_responses"],
+    }
+
+
+@proxy_app.post("/v1/proxy/refresh")
+async def _proxy_refresh():
+    """按数据库当前生效配置刷新上游地址与密钥，避免切换后代理仍在用旧上游。"""
+    try:
+        from .config_manager import target_list
+        from .crypto import decrypt_text
+        from .database import SessionLocal
+        from .models import Configuration
+    except Exception as e:
+        return JSONResponse(_error_body(f"refresh unavailable: {e}"), status_code=500)
+    db = SessionLocal()
+    try:
+        c = db.query(Configuration).filter(Configuration.is_active.is_(True)).first()
+        if c is None or c.provider is None or c.provider.api_type != "openai":
+            return JSONResponse(_error_body("no active openai provider"), status_code=409)
+        if not (set(target_list(c.targets)) & {"claude", "codex"}):
+            return JSONResponse(_error_body("active config does not need proxy"), status_code=409)
+        key = decrypt_text(c.api_key_encrypted)
+        if not key:
+            return JSONResponse(_error_body("api key decrypt failed"), status_code=500)
+        update_upstream(c.provider.api_base, key)
+        return {"ok": True, "upstream_base": c.provider.api_base, "model": c.model}
+    finally:
+        db.close()
+
+
+@proxy_app.post("/responses")
+@proxy_app.post("/v1/responses")
+async def responses(request: Request):
+    """Codex Responses 协议入口：翻译为上游 chat/completions 并翻译回 Responses。"""
+    token = request.headers.get("x-api-key")
+    if not token:
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            token = auth[7:].strip()
+    if not _state["token"] or token != _state["token"]:
+        return JSONResponse(
+            _error_body("invalid bearer token", "authentication_error"),
+            status_code=401,
+        )
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(_error_body("invalid JSON body", "invalid_request_error"), status_code=400)
+    if _DEBUG_LOG:
+        try:
+            with open(_DEBUG_LOG + ".responses.json", "w", encoding="utf-8") as f:
+                f.write(json.dumps(body, ensure_ascii=False))
+        except OSError:
+            pass
+
+    with _state["lock"]:
+        upstream_base, upstream_key = _state["upstream_base"], _state["upstream_key"]
+    if not upstream_base or not upstream_key:
+        return JSONResponse(_error_body("proxy is not configured"), status_code=503)
+
+    try:
+        payload = _build_responses_payload(body)
+    except Exception as e:
+        return JSONResponse(_error_body(str(e), "invalid_request_error"), status_code=400)
+
+    model = body.get("model") or ""
+    stream = bool(body.get("stream"))
+    try:
+        conn, resp = await asyncio.to_thread(
+            _open_upstream, payload, upstream_base, upstream_key
+        )
+    except Exception as e:
+        return JSONResponse(_error_body(str(e)), status_code=502)
+
+    if resp.status != 200:
+        detail = resp.read().decode("utf-8", "replace")
+        conn.close()
+        if _DEBUG_LOG:
+            _debug_log(payload, resp.status, detail.encode("utf-8"))
+        return JSONResponse(
+            _error_body(f"upstream HTTP {resp.status}: {detail[:500]}"),
+            status_code=502,
+        )
+
+    if stream:
+        def gen():
+            try:
+                if _DEBUG_LOG:
+                    raw_body = resp.read()
+                    _debug_log(payload, resp.status, raw_body)
+                    chunks = _iter_openai_chunks_from_lines(
+                        raw_body.decode("utf-8", "replace").splitlines()
+                    )
+                else:
+                    chunks = _iter_openai_chunks(resp)
+                for event, data in _translate_responses_stream(chunks, model):
+                    yield _sse(event, data)
+            except Exception as e:
+                yield _sse("error", _error_body(str(e)))
+            finally:
+                conn.close()
+
+        return StreamingResponse(gen(), media_type="text/event-stream")
+
+    try:
+        data = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception as e:
+        conn.close()
+        return JSONResponse(_error_body(str(e)), status_code=502)
+    finally:
+        conn.close()
+    if _DEBUG_LOG:
+        _debug_log(payload, resp.status, json.dumps(data, ensure_ascii=False).encode("utf-8"))
+    try:
+        return JSONResponse(_translate_responses_response(data, model))
+    except Exception as e:
+        return JSONResponse(_error_body(str(e)), status_code=502)
 
 
 @proxy_app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])

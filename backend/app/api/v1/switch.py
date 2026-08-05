@@ -78,10 +78,16 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
                 )
             codex_backup_path = config_manager.backup_codex_settings()
             existing = config_manager.read_codex_settings()
+            # 上游原生支持 Responses（如 DeepSeek）时直连上游，无需本地代理；
+            # 仅提供 Chat Completions 的上游（如智谱）才经本地翻译代理转发。
+            proxy = None
+            if not config.provider.native_responses:
+                proxy = proxy_standalone.ensure_proxy_running()
             codex_settings = config_manager.build_codex_settings(
-                existing, config.provider, api_key, config.model
+                existing, config.provider, api_key, config.model, proxy=proxy
             )
             config_manager.atomic_write_codex_settings(codex_settings)
+            config_manager.ensure_model_in_catalog(config.model, existing)
         crud.add_log(
             db, config_id, "success",
             "切换成功" + ("，Codex 配置已写入" if "codex" in targets else ""),
@@ -100,7 +106,7 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
 
     message = "切换成功"
     if "codex" in targets:
-        message += "；Codex 配置已写入，重启 Codex 后生效"
+        message += "；Codex 配置已写入（" + ("原生直连" if config.provider.native_responses else "经本地代理") + "），重启 Codex 后生效"
     return schemas.SwitchResult(
         success=True,
         message=message,

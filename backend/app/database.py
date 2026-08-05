@@ -78,6 +78,14 @@ def ensure_schema() -> None:
                     "ADD COLUMN targets VARCHAR(50) NOT NULL DEFAULT 'claude'"
                 )
             )
+        pcols = {row[1] for row in conn.execute(text("PRAGMA table_info(providers)"))}
+        if "native_responses" not in pcols:
+            conn.execute(
+                text(
+                    "ALTER TABLE providers "
+                    "ADD COLUMN native_responses BOOLEAN NOT NULL DEFAULT 0"
+                )
+            )
 
 
 @event.listens_for(engine, "connect")

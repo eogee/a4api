@@ -117,8 +117,9 @@ layui.use(['layer', 'form', 'element'], function () {
   });
 
   /* ---------- 供应商管理 ---------- */
-  function protocolLabel(t) {
-    return t === 'openai' ? 'OpenAI 兼容' : 'Anthropic';
+  function protocolLabel(p) {
+    if (p.api_type !== 'openai') return 'Anthropic';
+    return p.native_responses ? 'OpenAI 兼容（原生 Responses）' : 'OpenAI 兼容（本地代理）';
   }
 
   function loadProviders() {
@@ -132,7 +133,7 @@ layui.use(['layer', 'form', 'element'], function () {
         return '<tr>' +
           '<td>' + escapeHtml(p.name) + '</td>' +
           '<td class="provider-base">' + escapeHtml(p.api_base) + '</td>' +
-          '<td>' + escapeHtml(protocolLabel(p.api_type)) + '</td>' +
+          '<td>' + escapeHtml(protocolLabel(p)) + '</td>' +
           '<td>' + (p.is_custom ? '自定义' : '预置') + '</td>' +
           '<td class="provider-actions">' +
             '<button class="layui-btn layui-btn-xs" data-provider-action="edit" data-id="' + p.id + '">编辑</button>' +
@@ -168,7 +169,14 @@ layui.use(['layer', 'form', 'element'], function () {
             '<option value="anthropic">Anthropic（Claude Code 原生）</option>' +
             '<option value="openai">OpenAI 兼容（走本地翻译代理）</option>' +
           '</select>' +
-          '<div class="provider-hint" style="color:#999;">Codex 需使用 OpenAI 兼容（Responses）接口；如需切换 Codex，请选择 OpenAI 兼容。</div>' +
+          '<div class="provider-hint" style="color:#999;">Codex 需使用 OpenAI 兼容（Responses）接口；上游原生支持 Responses 时可勾选下方开关直连，否则经本地代理。</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="layui-form-item native-responses-item" style="display:none;">' +
+          '<label class="layui-form-label">原生 Responses</label>' +
+          '<div class="layui-input-block">' +
+            '<input type="checkbox" name="native_responses" lay-skin="switch" lay-text="直连|代理">' +
+            '<div class="provider-hint" style="color:#999;">上游原生支持 OpenAI Responses（如 DeepSeek）时开启：Codex 将直连上游，无需本地代理。</div>' +
           '</div>' +
         '</div>' +
         '<div class="layui-form-item">' +
@@ -189,9 +197,12 @@ layui.use(['layer', 'form', 'element'], function () {
             document.querySelector('input[name="api_base"]').value = p.api_base;
             document.querySelector('select[name="api_type"]').value = p.api_type;
             document.querySelector('input[name="is_custom"]').checked = !!p.is_custom;
+            document.querySelector('input[name="native_responses"]').checked = !!p.native_responses;
+            toggleNativeResponses();
             form.render(null, 'provider-form');
           });
         } else {
+          toggleNativeResponses();
           form.render(null, 'provider-form');
         }
       },
@@ -201,11 +212,12 @@ layui.use(['layer', 'form', 'element'], function () {
         var apiBase = document.querySelector('input[name="api_base"]').value.trim();
         var apiType = document.querySelector('select[name="api_type"]').value;
         var isCustom = document.querySelector('input[name="is_custom"]').checked;
+        var nativeResponses = !!document.querySelector('input[name="native_responses"]').checked;
         if (!name || !apiBase) {
           layer.msg('请填写名称和 Base URL', { icon: 2 });
           return;
         }
-        var body = { name: name, api_base: apiBase, api_type: apiType, is_custom: isCustom };
+        var body = { name: name, api_base: apiBase, api_type: apiType, native_responses: nativeResponses, is_custom: isCustom };
         var req = isEdit
           ? apiSend('/providers/' + editId, 'PUT', body)
           : apiSend('/providers', 'POST', body);
@@ -224,6 +236,20 @@ layui.use(['layer', 'form', 'element'], function () {
       }
     });
   }
+
+  function toggleNativeResponses() {
+    var sel = document.querySelector('select[name="api_type"]');
+    var item = document.querySelector('.native-responses-item');
+    if (sel && item) {
+      item.style.display = sel.value === 'openai' ? '' : 'none';
+    }
+  }
+
+  form.on('select(provider-form)', function (data) {
+    if (data.elem.name === 'api_type') {
+      toggleNativeResponses();
+    }
+  });
 
   function confirmDeleteProvider(id, name) {
     layer.confirm('确定删除供应商「' + escapeHtml(name) + '」？' +
@@ -331,7 +357,7 @@ layui.use(['layer', 'form', 'element'], function () {
   function providerOptions(providers, selected) {
     return providers.map(function (p) {
       var sel = (selected && p.id === selected) ? ' selected' : '';
-      var tag = p.api_type === 'openai' ? '（OpenAI）' : '';
+      var tag = p.api_type === 'openai' ? (p.native_responses ? '（原生Responses）' : '（OpenAI）') : '';
       return '<option value="' + p.id + '"' + sel + '>' + escapeHtml(p.name) + tag + '</option>';
     }).join('');
   }

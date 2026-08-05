@@ -26,8 +26,12 @@ def _active_openai_config():
         c = db.query(Configuration).filter(Configuration.is_active.is_(True)).first()
         if c is None or c.provider is None or c.provider.api_type != "openai":
             return None
-        if "claude" not in target_list(c.targets):
-            return None  # 仅 Codex 目标的方案不需要翻译代理
+        targets = set(target_list(c.targets))
+        if not (targets & {"claude", "codex"}):
+            return None  # 代理同时服务 Claude（messages 翻译）与 Codex（responses 翻译）
+        # 原生支持 Responses 且仅面向 Codex 的配置可直接访问上游，无需本地代理
+        if targets == {"codex"} and getattr(c.provider, "native_responses", False):
+            return None
         return c
     finally:
         db.close()
@@ -75,6 +79,51 @@ def _port_owner_pid(port):
         return None
 
 
+def _proxy_version(port):
+    """查询端口上代理的 /v1/api/version；旧构建无此端点时返回 None。"""
+    if not port:
+        return None
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{int(port)}/v1/api/version", timeout=2
+        ) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace"))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _proxy_compatible(port) -> bool:
+    """判断端口上的代理是否支持 Codex Responses 协议。
+
+    旧构建（如 api-switch.exe 早期版本）只实现了 Anthropic /v1/messages，
+    没有 /responses 端点；端口虽然活着但 Codex 会拿到 404，表现为
+    “无法访问本地代理地址”。复用代理前必须校验能力，避免误用旧进程。
+    """
+    ver = _proxy_version(port)
+    if not ver:
+        return False
+    return int(ver.get("version") or 0) >= 2 and "openai_responses" in (
+        ver.get("features") or []
+    )
+
+
+def _kill_owner(port) -> None:
+    """强制结束占用指定端口的进程（旧代理重启前清理）。"""
+    pid = _port_owner_pid(port)
+    if pid:
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/F"],
+                capture_output=True,
+                timeout=10,
+            )
+        except Exception:
+            pass
+
+
 def _spawn() -> None:
     """以独立进程方式启动代理（应用退出后仍然存活）。"""
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -94,6 +143,25 @@ def _spawn() -> None:
     )
 
 
+def _refresh_upstream(port: int) -> None:
+    """通知代理按数据库当前生效配置立即刷新上游，避免切换后短暂使用旧上游。"""
+    if not port:
+        return
+    try:
+        import urllib.request
+
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/v1/proxy/refresh",
+            method="POST",
+            headers={"Content-Type": "application/json"},
+            data=b"{}",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            resp.read()
+    except Exception:
+        pass
+
+
 def ensure_proxy_running() -> dict:
     """确保翻译代理进程在运行，返回 {"base_url", "token"} 供写 settings.json。"""
     status_file = _status_file()
@@ -101,10 +169,18 @@ def ensure_proxy_running() -> dict:
         try:
             st = json.loads(status_file.read_text(encoding="utf-8"))
             if _port_alive(st.get("port")) and st.get("token"):
-                return {
-                    "base_url": f"http://127.0.0.1:{st['port']}",
-                    "token": st["token"],
-                }
+                if _proxy_compatible(st.get("port")):
+                    _refresh_upstream(st.get("port"))
+                    return {
+                        "base_url": f"http://127.0.0.1:{st['port']}",
+                        "token": st["token"],
+                    }
+                # 端口活着但进程是旧构建（不支持 Responses）：杀掉后重启
+                _kill_owner(st.get("port"))
+                try:
+                    status_file.unlink()
+                except OSError:
+                    pass
         except (OSError, ValueError, KeyError):
             pass
 
@@ -114,7 +190,12 @@ def ensure_proxy_running() -> dict:
         if status_file.exists():
             try:
                 st = json.loads(status_file.read_text(encoding="utf-8"))
-                if _port_alive(st.get("port")) and st.get("token"):
+                if (
+                    _port_alive(st.get("port"))
+                    and st.get("token")
+                    and _proxy_compatible(st.get("port"))
+                ):
+                    _refresh_upstream(st.get("port"))
                     return {
                         "base_url": f"http://127.0.0.1:{st['port']}",
                         "token": st["token"],

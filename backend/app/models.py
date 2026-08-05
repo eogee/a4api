@@ -14,6 +14,7 @@ class Provider(Base):
     name = Column(String(100), unique=True, nullable=False)
     api_base = Column(String(500), nullable=False)
     api_type = Column(String(20), nullable=False)  # anthropic / openai
+    native_responses = Column(Boolean, default=False)  # OpenAI 兼容且原生支持 /responses，Codex 可直连
     is_custom = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now)
 

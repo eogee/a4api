@@ -9,6 +9,7 @@ class ProviderBase(BaseModel):
     name: str
     api_base: str
     api_type: str = Field(pattern="^(anthropic|openai)$")
+    native_responses: bool = False  # 原生支持 OpenAI Responses，Codex 可直连无需本地代理
     is_custom: bool = False
 
 
@@ -20,6 +21,7 @@ class ProviderUpdate(BaseModel):
     name: Optional[str] = None
     api_base: Optional[str] = None
     api_type: Optional[str] = Field(default=None, pattern="^(anthropic|openai)$")
+    native_responses: Optional[bool] = None
     is_custom: Optional[bool] = None
 
 
