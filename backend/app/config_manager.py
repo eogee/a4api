@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 try:
-    import tomllib
+    import tomllib  # type: ignore[import-not-found]
 except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
@@ -51,12 +51,12 @@ def read_settings() -> dict:
     if not path.exists():
         return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))  # type: ignore[no-any-return]
     except json.JSONDecodeError:
         return {}
 
 
-def backup_settings() -> Path:
+def backup_settings() -> Path | None:
     """修改前备份，返回备份文件路径；原文件不存在时返回 None。滚动保留最近 N 份。"""
     path = settings_path()
     if not path.exists():
@@ -93,7 +93,7 @@ def atomic_write_settings(data: dict) -> None:
         raise
 
 
-def build_settings(provider, api_key: str, model: str, proxy: dict = None) -> dict:
+def build_settings(provider, api_key: str, model: str, proxy: dict | None = None) -> dict:
     """按服务商协议类型生成 settings.json 内容。
 
     anthropic：写 ANTHROPIC_* 环境变量（官方 Claude Code 原生支持）。
@@ -142,12 +142,12 @@ def read_codex_settings() -> dict:
         raw = path.read_bytes()
         if raw.startswith(b"\xef\xbb\xbf"):
             raw = raw[3:]
-        return tomllib.loads(raw.decode("utf-8"))
+        return tomllib.loads(raw.decode("utf-8"))  # type: ignore[no-any-return]
     except (OSError, ValueError):
         return {}
 
 
-def backup_codex_settings() -> Path:
+def backup_codex_settings() -> Path | None:
     """修改前备份 config.toml，返回备份文件路径；原文件不存在时返回 None。"""
     path = codex_settings_path()
     if not path.exists():
@@ -165,7 +165,7 @@ def backup_codex_settings() -> Path:
 
 
 def build_codex_settings(
-    existing: dict, provider, api_key: str, model: str, proxy: dict = None
+    existing: dict, provider, api_key: str, model: str, proxy: dict | None = None
 ) -> dict:
     """基于现有 config.toml 生成新配置：
 
@@ -223,7 +223,7 @@ def atomic_write_codex_settings(data: dict) -> None:
 # ---------------- Codex 模型目录（model_catalog_json） ----------------
 
 
-def codex_catalog_path(existing: dict = None) -> Path:
+def codex_catalog_path(existing: dict | None = None) -> Path:
     """Codex 自定义模型目录路径，可用环境变量 A4API_CODEX_CATALOG_PATH 覆盖。"""
     override = os.environ.get("A4API_CODEX_CATALOG_PATH")
     if override:
@@ -271,14 +271,14 @@ _MODEL_CATALOG_TEMPLATE = {
 }
 
 
-def ensure_model_in_catalog(model: str, existing: dict = None) -> dict:
+def ensure_model_in_catalog(model: str, existing: dict | None = None) -> dict:
     """确保模型出现在 model_catalog_json 中，供 Codex 解析自定义模型能力。
 
     已存在则直接返回；不存在时优先复制目录中已有条目（如 deepseek-v4-flash）
     的完整结构，仅替换标识字段，避免因缺字段导致 Codex 解析失败。
     """
     path = codex_catalog_path(existing)
-    data = {"models": []}
+    data: dict = {"models": []}
     if path.exists():
         try:
             data = json.loads(path.read_text(encoding="utf-8"))

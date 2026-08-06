@@ -15,6 +15,7 @@ import socket
 import threading
 import urllib.parse
 import uuid
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -31,7 +32,7 @@ PROXY_PORT_START = 17890
 PROXY_PORT_END = 17899
 _DEBUG_LOG = os.environ.get("A4API_PROXY_DEBUG")
 
-_state = {
+_state: dict = {
     "token": None,
     "upstream_base": None,
     "upstream_key": None,
@@ -58,7 +59,7 @@ def _find_free_port():
     return None
 
 
-def start(upstream_base: str, upstream_key: str, token: str = None) -> dict:
+def start(upstream_base: str, upstream_key: str, token: str | None = None) -> dict:
     """启动（或更新）翻译代理，返回 settings.json 需要的 base_url 与 token。
 
     代理已在运行时 token 保持不变（避免使已写出的 settings.json 失效）；
@@ -126,10 +127,10 @@ def _clean_text(value) -> str:
     return " ".join(str(value or "").split())
 
 
-def _clean_schema_descriptions(schema) -> dict:
+def _clean_schema_descriptions(schema) -> Any:
     """递归清理 schema 内所有 description 字段中的换行。"""
     if isinstance(schema, dict):
-        out = {}
+        out: dict = {}
         for k, v in schema.items():
             if k == "description":
                 out[k] = _clean_text(v)
@@ -148,7 +149,7 @@ _LLAMA_DROP_KEYS = {
 }
 
 
-def _sanitize_schema_for_llama(schema):
+def _sanitize_schema_for_llama(schema) -> Any:
     """把工具 schema 净化成 llama.cpp 可解析的简化结构。
 
     llama.cpp 的工具解析器很脆弱：Claude Code 的复杂 schema（$schema、pattern、
@@ -157,7 +158,7 @@ def _sanitize_schema_for_llama(schema):
     type/properties/required/items/enum 等核心结构。
     """
     if isinstance(schema, dict):
-        out = {}
+        out: dict = {}
         for k, v in schema.items():
             if k in _LLAMA_DROP_KEYS:
                 continue
@@ -416,7 +417,7 @@ def translate_stream(chunks, model: str):
 
     text_started = False
     tool_open = {}  # OpenAI tool index -> Anthropic block index
-    tool_buf = {}  # OpenAI tool index -> {id, name}
+    tool_buf: dict = {}  # OpenAI tool index -> {id, name}
     next_block_index = 1
     output_tokens = 0
     finish = None
@@ -778,7 +779,7 @@ async def _proxy_refresh():
             return JSONResponse(_error_body("no active openai provider"), status_code=409)
         if not (set(target_list(c.targets)) & {"claude", "codex"}):
             return JSONResponse(_error_body("active config does not need proxy"), status_code=409)
-        key = decrypt_text(c.api_key_encrypted)
+        key = decrypt_text(str(c.api_key_encrypted))
         if not key:
             return JSONResponse(_error_body("api key decrypt failed"), status_code=500)
         update_upstream(c.provider.api_base, key)

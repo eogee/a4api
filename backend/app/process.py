@@ -1,7 +1,10 @@
 """Claude Code 进程探测与重启（Windows）。"""
+import logging
 import subprocess
 import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 IMAGE_NAMES = ("node.exe", "claude.exe", "claude")
 
@@ -22,7 +25,8 @@ def _find_claude_pids() -> list:
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", _CIM_QUERY],
             capture_output=True, text=True, timeout=15,
         ).stdout
-    except Exception:
+    except Exception as e:
+        logger.warning("探测 Claude Code 进程失败：%s", e)
         return []
     pids = []
     for line in out.splitlines():
@@ -37,7 +41,7 @@ def is_claude_running() -> bool:
 
 
 def restart_claude() -> dict:
-    """关闭旧进程并重新打开一个新终端运行 claude。"""
+    """关闭旧进程并重新打开一个新终端运行 claude，等待并验证新进程是否真正启动。"""
     pids = _find_claude_pids()
     killed = 0
     for pid in pids:
@@ -45,16 +49,32 @@ def restart_claude() -> dict:
             subprocess.run(["taskkill", "/PID", pid, "/F"],
                            capture_output=True, timeout=10)
             killed += 1
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("结束 Claude Code 进程 %s 失败：%s", pid, e)
     time.sleep(0.5)
     try:
         subprocess.Popen(["cmd", "/c", "start", "claude"], cwd=str(Path.home()))
-        started = True
-    except Exception:
-        started = False
+    except Exception as e:
+        logger.error("启动 Claude Code 失败：%s", e)
+        return {
+            "killed": killed,
+            "started": False,
+            "detail": f"启动 Claude Code 失败：{e}",
+        }
+
+    # 启动命令立刻返回，但新进程可能延迟出现；最多等待 10 秒确认
+    for _ in range(10):
+        if is_claude_running():
+            return {
+                "killed": killed,
+                "started": True,
+                "detail": "已重启 Claude Code 进程",
+            }
+        time.sleep(1)
+
+    logger.warning("Claude Code 启动后 10 秒内未探测到进程，可能未正确安装")
     return {
         "killed": killed,
-        "started": started,
-        "detail": f"已关闭 {killed} 个 Claude Code 进程" if killed else "未发现 Claude Code 进程",
+        "started": False,
+        "detail": "Claude Code 启动超时，请检查是否已安装",
     }

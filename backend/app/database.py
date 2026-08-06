@@ -1,6 +1,7 @@
 """SQLite 数据库连接与会话管理。"""
 import os
 import shutil
+import stat
 import sys
 from pathlib import Path
 
@@ -11,6 +12,23 @@ DATA_DIR_NAME = "a4api"
 DB_NAME = "a4api.db"
 LEGACY_DATA_DIR_NAME = "api-switch"
 LEGACY_DB_NAME = "api_switch.db"
+
+
+def _restrict_permissions(path: Path) -> None:
+    """尽力把数据目录/数据库文件权限收紧为仅当前用户。
+
+    Windows 上 chmod 不改变 ACL，主要由 APPDATA/项目目录的 NTFS 权限决定；
+    这里对非 Windows 环境仍做 700/600 收紧，属于尽力而为的加固。
+    """
+    if os.name == "nt":
+        return
+    try:
+        if path.is_dir():
+            os.chmod(path, stat.S_IRWXU)
+        else:
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+    except OSError:
+        pass
 
 
 def _legacy_data_dir() -> Path:
@@ -52,6 +70,7 @@ def get_data_dir() -> Path:
     else:
         base = Path(__file__).resolve().parent.parent / "database"  # backend/database
     base.mkdir(parents=True, exist_ok=True)
+    _restrict_permissions(base)
     _migrate_legacy_data(base)
     return base
 
@@ -94,6 +113,12 @@ def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
+
+
+@event.listens_for(engine, "connect")
+def _restrict_db_file_permissions(dbapi_connection, connection_record):
+    """数据库文件创建/连接后尽力收紧权限。"""
+    _restrict_permissions(DATABASE_PATH)
 
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -1,7 +1,12 @@
 """数据库操作封装。"""
+import threading
+
 from sqlalchemy.orm import Session
 
 from . import models
+
+# 切换激活配置的进程内互斥锁：避免两个并发请求把不同配置同时标为 active
+_ACTIVE_SWITCH_LOCK = threading.Lock()
 
 
 def get_providers(db: Session) -> list:
@@ -77,10 +82,21 @@ def delete_config(db: Session, config_id: int) -> bool:
 
 
 def set_active(db: Session, config: models.Configuration) -> None:
-    """将指定配置设为当前方案，清除其余方案的 active 标记。"""
-    db.query(models.Configuration).filter(models.Configuration.is_active.is_(True)).update({"is_active": False})
-    config.is_active = True
-    db.commit()
+    """将指定配置设为当前方案，清除其余方案的 active 标记。
+
+    使用进程内互斥锁串行化切换，避免并发请求把多个配置同时标为 active；
+    出现异常时回滚事务，避免数据库状态不一致。
+    """
+    with _ACTIVE_SWITCH_LOCK:
+        try:
+            db.query(models.Configuration).filter(
+                models.Configuration.is_active.is_(True)
+            ).update({"is_active": False})
+            config.is_active = True  # type: ignore[assignment]
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
 
 
 def add_log(db: Session, config_id, status: str, detail: str = "") -> None:

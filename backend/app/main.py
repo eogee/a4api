@@ -9,7 +9,10 @@ from fastapi.staticfiles import StaticFiles
 from . import models  # noqa: F401  # 注册模型建表
 from .api.v1 import configs, providers, switch
 from .database import Base, engine, ensure_schema
+from .logging_config import setup_logging
 from .seed import seed_providers
+
+setup_logging()
 
 
 def _frontend_dir() -> Path:
@@ -22,12 +25,13 @@ def _frontend_dir() -> Path:
 def create_app() -> FastAPI:
     app = FastAPI(title="a4api", version="0.1.0")
 
+    # 本地工具只允许本机页面访问 API，避免任意网站读取/操作配置
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?",
         allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization", "x-api-key"],
     )
 
     Base.metadata.create_all(bind=engine)

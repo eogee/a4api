@@ -5,8 +5,11 @@
 """
 import base64
 import ctypes
+import logging
 import sys
 from ctypes import wintypes
+
+logger = logging.getLogger(__name__)
 
 
 class DATA_BLOB(ctypes.Structure):
@@ -61,14 +64,20 @@ def _encrypt(plain: str) -> str:
 def _decrypt(cipher_b64: str) -> str:
     try:
         raw = base64.b64decode(cipher_b64.encode("ascii"))
-    except Exception:
+    except Exception as e:
+        logger.error("API Key 解密失败：base64 解码异常（%s）", e)
         return ""
     if sys.platform == "win32":
         try:
             return _unprotect(raw).decode("utf-8")
-        except Exception:
+        except Exception as e:
+            logger.error("API Key 解密失败：DPAPI 解密异常（%s）", e)
             return ""
-    return raw.decode("utf-8", errors="replace")
+    try:
+        return raw.decode("utf-8", errors="replace")
+    except Exception as e:
+        logger.error("API Key 解密失败：UTF-8 解码异常（%s）", e)
+        return ""
 
 
 def encrypt_text(plain: str) -> str:
@@ -77,5 +86,5 @@ def encrypt_text(plain: str) -> str:
 
 
 def decrypt_text(cipher_b64: str) -> str:
-    """解密密文，返回明文；失败返回空字符串。"""
+    """解密密文，返回明文；失败返回空字符串并记录日志。"""
     return _decrypt(cipher_b64)

@@ -60,7 +60,7 @@ def build_payload(body: dict) -> dict:
             if isinstance(content, str):
                 text = content
             else:
-                text = "".join(_part_text(p) for p in content if isinstance(p, dict))
+                text = "".join(_part_text(p) for p in (content or []) if isinstance(p, dict))
             if role == "assistant":
                 messages.append({"role": "assistant", "content": text or ""})
             elif role == "system":
@@ -235,7 +235,7 @@ def translate_response(data: dict, model: str) -> dict:
     }
 
 
-def translate_stream(chunks, model: str, response_id: str = None):
+def translate_stream(chunks, model: str, response_id: str | None = None):
     """OpenAI 流式分片（dict 迭代器）-> Responses SSE 事件 (event, data) 序列。"""
     rid = response_id or _new_id("resp")
     created = int(time.time())

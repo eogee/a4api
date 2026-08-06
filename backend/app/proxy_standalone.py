@@ -6,12 +6,15 @@
 """
 
 import json
+import logging
 import os
 import socket
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = 3.0
 
@@ -75,7 +78,8 @@ def _port_owner_pid(port):
             timeout=10,
         ).stdout.strip()
         return int(out) if out.isdigit() else None
-    except Exception:
+    except Exception as e:
+        logger.warning("反查端口 %s 占用进程失败：%s", port, e)
         return None
 
 
@@ -120,8 +124,8 @@ def _kill_owner(port) -> None:
                 capture_output=True,
                 timeout=10,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("结束端口 %s 占用进程失败：%s", port, e)
 
 
 def _spawn() -> None:
@@ -158,7 +162,15 @@ def _refresh_upstream(port: int) -> None:
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             resp.read()
-    except Exception:
+    except Exception as e:
+        logger.warning("刷新代理上游失败：%s", e)
+
+
+def _remove_status_file(status_file) -> None:
+    """尽力删除状态文件，进程崩溃残留时避免下次复用陈旧信息。"""
+    try:
+        status_file.unlink()
+    except OSError:
         pass
 
 
@@ -177,12 +189,11 @@ def ensure_proxy_running() -> dict:
                     }
                 # 端口活着但进程是旧构建（不支持 Responses）：杀掉后重启
                 _kill_owner(st.get("port"))
-                try:
-                    status_file.unlink()
-                except OSError:
-                    pass
-        except (OSError, ValueError, KeyError):
-            pass
+            # 端口已死、token 缺失或进程不兼容：清理陈旧状态文件后重新拉起
+            _remove_status_file(status_file)
+        except (OSError, ValueError, KeyError) as e:
+            logger.warning("读取代理状态文件失败，清理后重新启动：%s", e)
+            _remove_status_file(status_file)
 
     _spawn()
     deadline = time.time() + 20
@@ -225,11 +236,12 @@ def is_proxy_running() -> dict:
 
 
 def stop_proxy() -> dict:
-    """停止本地翻译代理进程。"""
+    """停止本地翻译代理进程；即使状态文件已陈旧也会顺手清理。"""
     st = is_proxy_running()
-    if not st["running"]:
-        return {"stopped": False, "detail": "代理未在运行"}
     status_file = _status_file()
+    if not st["running"]:
+        _remove_status_file(status_file)
+        return {"stopped": False, "detail": "代理未在运行"}
     pids = set()
     if st.get("pid"):
         pids.add(str(st["pid"]))
@@ -243,25 +255,26 @@ def stop_proxy() -> dict:
                 capture_output=True,
                 timeout=10,
             )
-        except Exception:
-            pass
-    try:
-        status_file.unlink()
-    except OSError:
-        pass
+        except Exception as e:
+            logger.warning("结束代理进程 %s 失败：%s", pid, e)
+    _remove_status_file(status_file)
     return {"stopped": True, "detail": f"已停止代理进程 {sorted(pids)}"}
 
 
 def main() -> None:
     from . import openai_proxy
     from .crypto import decrypt_text
+    from .logging_config import setup_logging
+
+    setup_logging()
 
     status_file = _status_file()
     previous = {}
     if status_file.exists():
         try:
             previous = json.loads(status_file.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        except (OSError, ValueError) as e:
+            logger.warning("读取旧代理状态文件失败：%s", e)
             previous = {}
     token = previous.get("token") or None
 
@@ -276,6 +289,9 @@ def main() -> None:
             continue
 
         key = decrypt_text(cfg.api_key_encrypted)
+        if not key:
+            logger.error("当前配置「%s」的 API Key 解密失败，代理无法启动", cfg.name)
+            break
         signature = (cfg.id, cfg.provider.id, cfg.provider.api_base, cfg.model)
         if signature != last_signature:
             info = openai_proxy.start(cfg.provider.api_base, key, token=token)
@@ -290,10 +306,7 @@ def main() -> None:
         time.sleep(POLL_INTERVAL)
 
     openai_proxy.stop()
-    try:
-        status_file.unlink()
-    except OSError:
-        pass
+    _remove_status_file(status_file)
 
 
 if __name__ == "__main__":

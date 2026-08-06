@@ -16,4 +16,12 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pyinstaller>=6.0",
+    "mypy>=1.0",
+    "pytest>=8.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/app/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

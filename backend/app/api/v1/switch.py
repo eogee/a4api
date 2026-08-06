@@ -1,4 +1,6 @@
 """切换与状态接口。"""
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -6,6 +8,8 @@ from ... import config_manager, crud, proxy_standalone, schemas
 from ...crypto import decrypt_text
 from ...database import get_db
 from ...process import is_claude_running, restart_claude
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -54,6 +58,7 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
         api_key = decrypt_text(config.api_key_encrypted)
         if not api_key:
             raise ValueError("API Key 解密失败")
+        proxy: dict | None = None
         # 先标记生效并提交，独立翻译代理进程才能从数据库找到当前配置
         crud.set_active(db, config)
         targets = config_manager.target_list(config.targets)
@@ -93,6 +98,7 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
             "切换成功" + ("，Codex 配置已写入" if "codex" in targets else ""),
         )
     except Exception as e:
+        logger.exception("切换配置「%s」失败", config.name)
         crud.add_log(db, config_id, "failed", str(e))
         raise HTTPException(500, f"切换失败：{e}")
 
