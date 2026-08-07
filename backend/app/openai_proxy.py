@@ -132,7 +132,10 @@ def _clean_schema_descriptions(schema) -> Any:
     if isinstance(schema, dict):
         out: dict = {}
         for k, v in schema.items():
-            if k == "description":
+            # 仅当 description 的值确实是字符串时做空白折叠；
+            # 否则（如工具参数里恰好有一个叫 description 的属性，值是 schema 字典）
+            # 继续递归处理，避免把整个 schema 误转成字符串导致上游 400。
+            if k == "description" and isinstance(v, str):
                 out[k] = _clean_text(v)
             else:
                 out[k] = _clean_schema_descriptions(v)
