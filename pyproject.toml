@@ -18,6 +18,7 @@ dev = [
     "pyinstaller>=6.0",
     "mypy>=1.0",
     "pytest>=8.0",
+    "pillow>=12.3.0",
 ]
 
 [tool.pytest.ini_options]
