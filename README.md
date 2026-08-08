@@ -13,7 +13,7 @@ Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Respons
 从 Gitee **发行版（Release）** 页面下载安装包 `a4api-setup-*.exe`：
 
 - **下载地址**：https://gitee.com/eogee/a4api/releases （选择最新版本）
-- **系统要求**：Windows 10/11 64 位，**无需安装 Python**
+- **系统要求**：Windows 10/11 64 位
 - 建议核对下载页提供的 SHA256 校验值，确保文件完整未被篡改
 
 安装包采用**每用户安装（免 UAC）**：双击运行后按向导安装到当前用户目录，全程无需管理员权限。安装完成后自动创建开始菜单与桌面快捷方式，并可在「设置 → 应用」中卸载。
