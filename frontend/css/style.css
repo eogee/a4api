@@ -1,175 +1,376 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* =============================================================
+   旗舰店柜台（Flagship Store Counter）
+   薄荷画布 · 无瑕白卡 · 发丝分隔线 · 深墨字 · 状态绿独点
+   ============================================================= */
+
 body {
-  background: #f2f2f2;
+  background: #eefafa;
   font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
-  color: #333;
+  color: #1c1e21;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* 顶部 */
+/* ---------- 顶部（柜台台面） ---------- */
 .app-header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 14px 24px;
-  background: #fff;
-  border-bottom: 1px solid #e6e6e6;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, .05);
+  gap: 18px;
+  padding: 16px 28px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8e8;
+  box-shadow: 0 1px 2px rgba(23, 26, 31, .04);
 }
 
 .app-title {
-  font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 20px;
   font-weight: 600;
+  letter-spacing: .01em;
   white-space: nowrap;
+  color: #1c1e21;
+}
+
+.app-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #16baaa;
+  flex: none;
 }
 
 .status-bar {
   flex: 1;
-  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.status-label {
+  flex: none;
+  white-space: nowrap;
+  color: #8a8e94;
+}
+
+.status-text {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 600;
+  color: #3d4044;
 }
 
-.status-label { color: #888; }
+.status-text.status-active {
+  color: #16baaa;
+}
 
-.status-text { font-weight: 600; }
+.status-text.status-active::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #16baaa;
+  margin-right: 6px;
+  vertical-align: middle;
+}
 
-.status-text.status-active { color: #16b777; }
-
-.header-actions { white-space: nowrap; display: flex; align-items: center; gap: 10px; }
+.header-actions {
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 
 .proxy-label {
   font-size: 13px;
-  color: #888;
+  color: #8a8e94;
   user-select: none;
 }
 
-/* 主体 */
+/* ---------- 主体 ---------- */
 .app-main {
-  max-width: 1100px;
-  margin: 24px auto;
-  padding: 0 24px;
+  max-width: 1120px;
+  margin: 28px auto;
+  padding: 0 28px;
 }
 
 .section-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
-  color: #555;
+  color: #3d4044;
   margin-bottom: 14px;
 }
 
+/* ---------- 细线 tab ---------- */
+.app-main .layui-tab-brief > .layui-tab-title {
+  background: transparent;
+  border-bottom: 1px solid #e2e8e8;
+  height: 44px;
+}
+
+.app-main .layui-tab-brief > .layui-tab-title li {
+  line-height: 44px;
+  min-width: 0;
+  padding: 0 22px;
+  font-size: 14px;
+  color: #8a8e94;
+  transition: color .2s ease;
+}
+
+.app-main .layui-tab-brief > .layui-tab-title li:first-child { padding-left: 0; }
+
+.app-main .layui-tab-brief > .layui-tab-title li:hover { color: #3d4044; }
+
+.app-main .layui-tab-brief > .layui-tab-title .layui-this {
+  color: #1c1e21;
+  font-weight: 600;
+}
+
+.app-main .layui-tab-brief > .layui-tab-title .layui-this::after {
+  border: none;
+  border-radius: 0;
+  border-bottom: 2px solid #16baaa;
+  height: 44px;
+}
+
+.app-main .layui-tab-content { padding-top: 24px; }
+
+/* ---------- 卡片网格 ---------- */
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
+  gap: 18px;
 }
 
-/* 卡片 */
+/* ---------- 配置方案卡片（精品陈列） ---------- */
 .config-card {
   position: relative;
-  background: #fff;
-  border: 1px solid #e6e6e6;
-  border-radius: 8px;
-  padding: 18px 18px 14px;
-  transition: box-shadow .2s, border-color .2s;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid #e2e8e8;
+  border-radius: 12px;
+  padding: 22px 22px 18px;
+  box-shadow: 0 1px 2px rgba(23, 26, 31, .03);
+  transition: box-shadow .25s ease, transform .25s ease, border-color .25s ease;
 }
 
-.config-card:hover { box-shadow: 0 3px 12px rgba(0, 0, 0, .08); }
+.config-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(23, 26, 31, .07);
+}
 
 .config-card.card-active {
-  border-color: #16b777;
-  border-width: 2px;
+  border-color: #16baaa;
+  box-shadow: 0 0 0 1px rgba(22, 186, 170, .35), 0 6px 20px rgba(22, 186, 170, .12);
 }
 
+/* 使用中徽章：软色药丸 */
 .active-badge {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  background: #16b777;
-  color: #fff;
+  top: 14px;
+  right: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #ebf9f8;
+  color: #118f83;
   font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 10px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 100px;
+}
+
+.active-badge::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #16baaa;
 }
 
 .card-name {
   font-size: 16px;
   font-weight: 600;
   margin-bottom: 8px;
-  padding-right: 60px;
+  padding-right: 68px;
+  color: #1c1e21;
 }
 
-.card-meta { font-size: 13px; color: #888; line-height: 1.7; }
+.card-meta {
+  font-size: 13px;
+  color: #8a8e94;
+  line-height: 1.7;
+}
 
 .card-targets {
-  margin-top: 8px;
-  display: flex;
-  gap: 6px;
-}
-
-.target-badge {
-  font-size: 11px;
-  line-height: 1;
-  padding: 3px 8px;
-  border-radius: 9px;
-  color: #fff;
-}
-
-.target-claude { background: #d97757; }
-
-.target-codex { background: #1e9fff; }
-
-.card-actions {
-  margin-top: 14px;
+  margin-top: 12px;
   display: flex;
   gap: 8px;
 }
 
-.target-checkboxes .layui-form-checkbox {
-  margin-right: 12px;
+.target-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 10px;
+  border-radius: 100px;
+  font-weight: 500;
 }
 
+.target-claude {
+  background: #f8ede8;
+  color: #b0563a;
+}
+
+.target-codex {
+  background: #e9f0fb;
+  color: #2f6fb4;
+}
+
+.card-actions {
+  margin-top: auto;
+  padding-top: 16px;
+  display: flex;
+  gap: 8px;
+}
+
+/* ---------- 按钮（深墨主按钮 · 白描边次按钮 · 软红危险） ---------- */
+.layui-btn {
+  border-radius: 8px;
+  font-size: 13px;
+  height: 34px;
+  line-height: 32px;
+  padding: 0 16px;
+  background-color: #ffffff;
+  color: #3d4044;
+  border: 1px solid #dce2e2;
+  transition: all .2s ease;
+}
+
+.layui-btn:hover {
+  background-color: #f2f6f6;
+  color: #1c1e21;
+  border-color: #d3d9d9;
+  opacity: 1;
+}
+
+.layui-btn-normal {
+  background-color: #1c1e21;
+  color: #ffffff;
+  border-color: #1c1e21;
+}
+
+.layui-btn-normal:hover {
+  background-color: #2d3035;
+  color: #ffffff;
+  border-color: #2d3035;
+}
+
+/* 危险按钮 = 软红描边（删除） */
+.layui-btn-danger.layui-btn-primary {
+  background-color: #fdf0ed;
+  color: #c03a2f;
+  border-color: #f0d6d0;
+}
+
+.layui-btn-danger.layui-btn-primary:hover {
+  background-color: #fbe6e1;
+  color: #a93329;
+  border-color: #eac4bc;
+}
+
+/* 纯危险（如整块删除按钮） */
+.layui-btn-danger:not(.layui-btn-primary) {
+  background-color: #c03a2f;
+  color: #ffffff;
+  border-color: #c03a2f;
+}
+
+.layui-btn-danger:not(.layui-btn-primary):hover {
+  background-color: #a93329;
+  color: #ffffff;
+  border-color: #a93329;
+}
+
+.layui-btn-sm { height: 30px; line-height: 28px; padding: 0 14px; font-size: 13px; }
+
+.layui-btn-xs { height: 26px; line-height: 24px; padding: 0 10px; font-size: 12px; }
+
+/* ---------- 空态 ---------- */
 .empty-tip {
   grid-column: 1 / -1;
   text-align: center;
-  color: #999;
-  padding: 60px 0;
+  color: #a7aaae;
+  padding: 72px 0;
   font-size: 14px;
 }
 
+/* ---------- 供应商管理 ---------- */
 .providers-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .providers-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
-  color: #555;
+  color: #3d4044;
 }
 
 .provider-list {
-  background: #fff;
-  border: 1px solid #e6e6e6;
-  border-radius: 8px;
-  padding: 4px 12px 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8e8;
+  border-radius: 12px;
+  padding: 6px 18px 18px;
+  box-shadow: 0 1px 2px rgba(23, 26, 31, .03);
 }
 
-.provider-list .empty-tip {
-  padding: 40px 0;
-}
+.provider-list .empty-tip { padding: 48px 0; }
 
+/* ---------- 表格 ---------- */
 .provider-list .layui-table {
-  margin: 8px 0 0;
+  margin: 10px 0 0;
+  color: #3d4044;
+}
+
+.provider-list .layui-table th {
+  background: #eefafa;
+  color: #8a8e94;
+  font-size: 12px;
+  font-weight: 500;
+  border-color: #ecf1f1;
+  padding: 10px 14px;
+}
+
+.provider-list .layui-table td {
+  border-color: #ecf1f1;
+  padding: 12px 14px;
+  font-size: 13px;
+}
+
+.provider-list .layui-table tr { transition: background .15s ease; }
+
+.provider-list .layui-table tbody tr:hover td {
+  background: #eefafa;
 }
 
 .provider-base {
   word-break: break-all;
   max-width: 380px;
+  color: #8a8e94;
 }
 
 .provider-actions {
@@ -179,12 +380,249 @@ body {
 .provider-hint {
   margin-top: 8px;
   font-size: 12px;
+  color: #8a8e94;
 }
 
 .provider-hint a {
-  color: #1e9fff;
+  color: #2f6fb4;
   cursor: pointer;
 }
 
-/* 弹窗表单 */
-.config-form { padding: 18px 24px; }
+/* ---------- 弹窗表单（柜台抽屉） ---------- */
+.config-form,
+.provider-form { padding: 22px 26px; }
+
+.config-form .layui-form-label,
+.provider-form .layui-form-label {
+  width: 96px;
+  padding: 9px 14px;
+  color: #5b5e63;
+  font-size: 13px;
+}
+
+.config-form .layui-input-block,
+.provider-form .layui-input-block { margin-left: 126px; }
+
+/* 输入框 */
+.layui-input {
+  border-radius: 8px;
+  border-color: #dce2e2;
+  background-color: #ffffff;
+  color: #1c1e21;
+  height: 36px;
+}
+
+.layui-input:hover { border-color: #d3d9d9; }
+
+.layui-input:focus {
+  border-color: #16baaa !important;
+  box-shadow: 0 0 0 3px rgba(22, 186, 170, .1) !important;
+}
+
+.layui-input::placeholder { color: #a7aaae; }
+
+/* 下拉选择 */
+.layui-form-select .layui-input {
+  border-radius: 8px;
+  border-color: #dce2e2;
+}
+
+.layui-form-select dl {
+  border-radius: 10px;
+  border-color: #e2e8e8;
+  box-shadow: 0 12px 32px rgba(23, 26, 31, .12);
+  padding: 6px;
+}
+
+.layui-form-select dl dd {
+  border-radius: 6px;
+  font-size: 13px;
+  color: #3d4044;
+}
+
+.layui-form-select dl dd:hover { background-color: #eefafa; }
+
+.layui-form-select dl dd.layui-this {
+  background-color: #eefafa;
+  color: #118f83;
+  font-weight: 600;
+}
+
+/* 复选框（primary 皮肤） */
+.layui-form-checkbox[lay-skin=primary] > i {
+  border-radius: 5px;
+  border-color: #d3d9d9;
+}
+
+.layui-form-checkbox[lay-skin=primary]:hover > i { border-color: #16baaa; }
+
+.layui-form-checkbox[lay-skin=primary] > div { color: #3d4044; }
+
+.layui-form-checked[lay-skin=primary] > i,
+.layui-form-checked[lay-skin=primary]:hover > i {
+  border-color: #16baaa !important;
+  background-color: #16baaa;
+  color: #fff;
+}
+
+/* 开关（代理服务） */
+.layui-form-switch {
+  margin-top: 0;
+  border-radius: 100px;
+  border-color: #d3d9d9;
+  background-color: #ffffff;
+}
+
+.layui-form-switch i {
+  background-color: #d3d9d9;
+}
+
+.layui-form-onswitch {
+  border-color: #16baaa;
+  background-color: #16baaa;
+}
+
+.layui-form-onswitch i { background-color: #ffffff; }
+
+/* 开关文字（lay-text 直连|代理 等）：哑灰 → 白（选中态） */
+.layui-form-switch > div { color: #8a8e94 !important; }
+
+.layui-form-onswitch > div { color: #ffffff !important; }
+
+/* ---------- layer 弹窗（旗舰店玻璃柜） ---------- */
+.layui-layer {
+  border-radius: 12px;
+  box-shadow: 0 24px 48px rgba(23, 26, 31, .16);
+  border: 1px solid #ecf1f1;
+}
+
+.layui-layer-title {
+  height: 50px;
+  line-height: 50px;
+  padding: 0 20px;
+  border-bottom: 1px solid #ecf1f1;
+  font-size: 15px;
+  color: #1c1e21;
+  border-radius: 12px 12px 0 0;
+}
+
+.layui-layer-btn {
+  border-top: 1px solid #ecf1f1;
+  padding: 12px 18px 16px;
+  text-align: right;
+}
+
+.layui-layer-btn a {
+  height: 32px;
+  line-height: 30px;
+  padding: 0 18px;
+  border-radius: 8px;
+  border: 1px solid #dce2e2;
+  background-color: #ffffff;
+  color: #3d4044;
+  font-size: 13px;
+}
+
+.layui-layer-btn a:hover {
+  background-color: #f2f6f6;
+  color: #1c1e21;
+  opacity: 1;
+}
+
+.layui-layer-btn .layui-layer-btn0 {
+  background-color: #1c1e21;
+  border-color: #1c1e21;
+  color: #ffffff;
+}
+
+.layui-layer-btn .layui-layer-btn0:hover {
+  background-color: #2d3035;
+  border-color: #2d3035;
+  color: #ffffff;
+}
+
+/* ---------- 通知（layer.msg toast · layer.confirm 确认框） ---------- */
+/* toast：比弹窗更轻的影，白卡 + 浅发丝边，语义色只落在图标上 */
+.layui-layer-msg {
+  min-width: 180px;
+  border-color: #ecf1f1;
+  box-shadow: 0 12px 32px rgba(23, 26, 31, .12);
+}
+
+/* 正文：软墨（替代默认 rgba(0,0,0,.85)） */
+.layui-layer-dialog .layui-layer-content {
+  color: #3d4044;
+}
+
+/* 图标基准：哑灰（中性，The One-Signal Rule 之外） */
+.layui-layer-dialog .layui-layer-content .layui-layer-face {
+  color: #8a8e94;
+}
+
+/* 成功 → 状态绿（操作已生效的瞬时回声）；失败 → 危险红 */
+.layui-layer-dialog .layui-layer-content .layui-icon-success {
+  color: #16baaa;
+}
+
+.layui-layer-dialog .layui-layer-content .layui-icon-error {
+  top: 19px;
+  color: #c03a2f;
+}
+
+/* 确认问号 / 提示：中性哑灰，不抢「当前生效」的绿 */
+.layui-layer-dialog .layui-layer-content .layui-icon-question,
+.layui-layer-dialog .layui-layer-content .layui-icon-tips {
+  color: #8a8e94;
+}
+
+/* 确认框关闭按钮：弱灰 → 软墨 */
+.layui-layer-setwin .layui-layer-close {
+  color: #a7aaae;
+  transition: color .2s ease;
+}
+
+.layui-layer-setwin .layui-layer-close:hover {
+  color: #3d4044;
+}
+
+/* 弹窗内的开关（原生 Responses / 自定义） */
+.layui-layer .layui-form-switch {
+  margin-top: 10px;
+}
+
+/* ---------- 滚动条（弱化） ---------- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d3d9d9;
+  border: 2px solid transparent;
+  border-radius: 100px;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a7aaae;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 720px) {
+  .app-header { padding: 14px 16px; gap: 12px; }
+  .app-main { margin: 20px auto; padding: 0 16px; }
+  .app-title { font-size: 18px; }
+  .proxy-label { display: none; }
+  .card-grid { grid-template-columns: repeat(auto-fill, minmax(100%, 1fr)); }
+  .config-form,
+  .provider-form { padding: 16px 18px; }
+}

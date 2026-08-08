@@ -165,18 +165,18 @@ layui.use(['layer', 'form', 'element'], function () {
         '</div>' +
         '<div class="layui-form-item">' +
           '<label class="layui-form-label">协议类型</label>' +
-          '<div class="layui-input-block"><select name="api_type">' +
+          '<div class="layui-input-block"><select name="api_type" lay-filter="provider-form">' +
             '<option value="anthropic">Anthropic（Claude Code 原生）</option>' +
             '<option value="openai">OpenAI 兼容（走本地翻译代理）</option>' +
           '</select>' +
-          '<div class="provider-hint" style="color:#999;">Codex 需使用 OpenAI 兼容（Responses）接口；上游原生支持 Responses 时可勾选下方开关直连，否则经本地代理。</div>' +
+          '<div class="provider-hint" style="color:#8a8e94;">Codex 需使用 OpenAI 兼容（Responses）接口；上游原生支持 Responses 时可勾选下方开关直连，否则经本地代理。</div>' +
           '</div>' +
         '</div>' +
         '<div class="layui-form-item native-responses-item" style="display:none;">' +
           '<label class="layui-form-label">原生 Responses</label>' +
           '<div class="layui-input-block">' +
             '<input type="checkbox" name="native_responses" lay-skin="switch" lay-text="直连|代理">' +
-            '<div class="provider-hint" style="color:#999;">上游原生支持 OpenAI Responses（如 DeepSeek）时开启：Codex 将直连上游，无需本地代理。</div>' +
+            '<div class="provider-hint" style="color:#8a8e94;">上游原生支持 OpenAI Responses（如 DeepSeek）时开启：Codex 将直连上游，无需本地代理。</div>' +
           '</div>' +
         '</div>' +
         '<div class="layui-form-item">' +
@@ -253,7 +253,7 @@ layui.use(['layer', 'form', 'element'], function () {
 
   function confirmDeleteProvider(id, name) {
     layer.confirm('确定删除供应商「' + escapeHtml(name) + '」？' +
-      '<br><span style="font-size:12px;color:#999;">该供应商下有配置方案时无法删除</span>',
+      '<br><span style="font-size:12px;color:#8a8e94;">该供应商下有配置方案时无法删除</span>',
       { title: '删除确认' }, function (index) {
         apiSend('/providers/' + id, 'DELETE', {}).then(function () {
           layer.close(index);
@@ -316,12 +316,12 @@ layui.use(['layer', 'form', 'element'], function () {
     var hasClaude = (targets || '').indexOf('claude') !== -1;
     var hasCodex = (targets || '').indexOf('codex') !== -1;
     var restartHtml = hasClaude
-      ? '<label style="display:block;margin-top:16px;font-size:13px;color:#666;">' +
-          '<input type="checkbox" id="chk-restart" style="margin-right:6px;">切换后重启 Claude Code（若正在运行）' +
-        '</label>'
+      ? '<div class="layui-form" style="margin-top:16px;">' +
+          '<input type="checkbox" id="chk-restart" lay-skin="primary" title="切换后重启 Claude Code（若正在运行）">' +
+        '</div>'
       : '';
     var codexNote = hasCodex
-      ? '<p style="font-size:12px;color:#999;margin-top:10px;">Codex 配置写入后需重启 Codex 才生效</p>'
+      ? '<p style="font-size:12px;color:#8a8e94;margin-top:10px;">Codex 配置写入后需重启 Codex 才生效</p>'
       : '';
     layer.open({
       type: 1,
@@ -331,6 +331,9 @@ layui.use(['layer', 'form', 'element'], function () {
         '<p style="font-size:15px;">确定切换到「' + escapeHtml(name) + '」？</p>' +
         restartHtml + codexNote + '</div>',
       btn: ['确认切换', '取消'],
+      success: function () {
+        if (hasClaude) form.render('checkbox');
+      },
       yes: function (index) {
         var chk = document.getElementById('chk-restart');
         var restart = !!(chk && chk.checked);
@@ -374,7 +377,9 @@ layui.use(['layer', 'form', 'element'], function () {
           '<div class="layui-form-item">' +
             '<label class="layui-form-label">服务商</label>' +
             '<div class="layui-input-block">' +
-              '<select name="provider_id">' + providerOptions(providers) + '</select>' +
+              '<select name="provider_id" lay-search>' +
+                '<option value="">选择或搜索服务商</option>' + providerOptions(providers) +
+              '</select>' +
               '<div class="provider-hint"><a href="javascript:;" id="link-add-provider">没有你的供应商？点此添加</a></div>' +
             '</div>' +
           '</div>' +
@@ -410,7 +415,7 @@ layui.use(['layer', 'form', 'element'], function () {
     layer.open({
       type: 1,
       title: isEdit ? '编辑配置方案' : '新增配置方案',
-      area: ['480px', 'auto'],
+      area: ['500px', 'auto'],
       content: html,
       success: function () {
         if (c) {
@@ -445,6 +450,12 @@ layui.use(['layer', 'form', 'element'], function () {
         }
         if (!data.targets) {
           layer.msg('请至少选择一个应用目标（Claude Code / Codex）', { icon: 2 });
+          return;
+        }
+        // Codex 需使用 OpenAI 兼容（Responses）接口：保存前拦截 Anthropic 服务商 + 勾选 Codex
+        var selProvider = providers.find(function (p) { return p.id === Number(data.provider_id); });
+        if (data.targets.indexOf('codex') !== -1 && selProvider && selProvider.api_type !== 'openai') {
+          layer.msg('Codex 需使用 OpenAI 兼容（Responses）接口，请更换服务商或去掉 Codex 目标', { icon: 2 });
           return;
         }
         var body = {

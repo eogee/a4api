@@ -8,13 +8,21 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <!--
+  THESIS: 每个配置方案如柜台上的精品陈列——当前生效的一件被悄然点亮；拒绝「卡片网格 + 蓝按钮」的管理后台默认。
+  OWN-WORLD: 象牙白地面上的无瑕白卡，发丝分隔线，深墨字；状态绿只点亮「当前生效」一处；柔和定向光、克制的圆角与软色徽章。
+  STORY: 用户一打开就看见「当前生效」在顶栏常驻，配置像陈列在旗舰店柜台上的精品，点「切换」即把另一件请上展台，其余安静退让。
+  FIRST VIEWPORT: 顶部白栏（a4api 标题 + 当前生效状态 + 代理开关 + 新增配置深墨按钮）；下方细线 tab；主区为象牙白地面上的白色配置卡片，激活者带绿描边与淡绿光晕。
+  FORM: 旗舰店柜台（grounded #6），seed ddbf58ae。
+  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+  -->
   <div class="app-header">
-    <div class="app-title">⚡ a4api</div>
+    <div class="app-title"><span class="app-mark" aria-hidden="true"></span>a4api</div>
     <div class="status-bar" id="status-bar">
       <span class="status-label">当前生效：</span>
       <span id="status-text" class="status-text">加载中…</span>
     </div>
-    <div class="header-actions">
+    <div class="header-actions layui-form">
       <span class="proxy-label" id="proxy-label">代理服务</span>
       <input type="checkbox" id="proxy-switch" lay-skin="switch" lay-filter="proxy-switch" disabled>
       <button class="layui-btn layui-btn-normal" id="btn-add">新增配置</button>
