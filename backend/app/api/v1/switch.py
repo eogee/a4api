@@ -58,29 +58,33 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
         api_key = decrypt_text(config.api_key_encrypted)
         if not api_key:
             raise ValueError("API Key 解密失败")
+        targets = config_manager.target_list(config.targets)
+        # 目标含 Codex 但服务商非 OpenAI 兼容时，在标记生效 / 写任何文件之前干净失败，
+        # 避免出现“Claude 配置已写入但整体报错”的半生效状态
+        if "codex" in targets and config.provider.api_type != "openai":
+            raise ValueError(
+                f"Codex 需要 OpenAI 兼容（Responses）接口，"
+                f"请为「{config.name}」选择 OpenAI 兼容的服务商"
+            )
         proxy: dict | None = None
         # 先标记生效并提交，独立翻译代理进程才能从数据库找到当前配置
         crud.set_active(db, config)
-        targets = config_manager.target_list(config.targets)
         if "claude" in targets:
             backup_path = config_manager.backup_settings()
+            # 读现有 settings.json 传入合并，保留 hooks / permissions 等用户已有键
+            existing = config_manager.read_settings()
             if config.provider.api_type == "openai":
                 # 独立代理进程：应用退出后仍然存活，Claude Code 可继续使用
                 proxy = proxy_standalone.ensure_proxy_running()
                 settings = config_manager.build_settings(
-                    config.provider, api_key, config.model, proxy=proxy
+                    existing, config.provider, api_key, config.model, proxy=proxy
                 )
             else:
                 settings = config_manager.build_settings(
-                    config.provider, api_key, config.model
+                    existing, config.provider, api_key, config.model
                 )
             config_manager.atomic_write_settings(settings)
         if "codex" in targets:
-            if config.provider.api_type != "openai":
-                raise ValueError(
-                    f"Codex 需要 OpenAI 兼容（Responses）接口，"
-                    f"请为「{config.name}」选择 OpenAI 兼容的服务商"
-                )
             codex_backup_path = config_manager.backup_codex_settings()
             existing = config_manager.read_codex_settings()
             # 上游原生支持 Responses（如 DeepSeek）时直连上游，无需本地代理；

@@ -93,33 +93,45 @@ def atomic_write_settings(data: dict) -> None:
         raise
 
 
-def build_settings(provider, api_key: str, model: str, proxy: dict | None = None) -> dict:
-    """按服务商协议类型生成 settings.json 内容。
+def build_settings(
+    existing: dict | None,
+    provider,
+    api_key: str,
+    model: str,
+    proxy: dict | None = None,
+) -> dict:
+    """基于现有 settings.json 生成切换后的内容（合并式，保护用户已有配置）。
 
     anthropic：写 ANTHROPIC_* 环境变量（官方 Claude Code 原生支持）。
     openai：官方 Claude Code 不识别 OPENAI_* 配置，需经由本地翻译代理
     （openai_proxy）把 Anthropic 请求转成 OpenAI 格式；这里把
     ANTHROPIC_BASE_URL 指向本地代理并写入代理鉴权 token。
+
+    只覆盖本工具托管的键（env 中的 ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL、
+    model、alwaysThinkingEnabled），其余顶层键（hooks、permissions、
+    mcpServers、其他 env 变量等）原样保留，避免切换时抹掉用户已有配置。
     """
     if provider.api_type == "openai":
         if not proxy or not proxy.get("base_url") or not proxy.get("token"):
             raise ValueError("OpenAI 类型服务商需要先启动本地翻译代理")
-        return {
-            "env": {
-                "ANTHROPIC_AUTH_TOKEN": proxy["token"],
-                "ANTHROPIC_BASE_URL": proxy["base_url"],
-            },
-            "model": model,
-            "alwaysThinkingEnabled": False,
+        env = {
+            "ANTHROPIC_AUTH_TOKEN": proxy["token"],
+            "ANTHROPIC_BASE_URL": proxy["base_url"],
         }
-    return {
-        "env": {
+    else:
+        env = {
             "ANTHROPIC_AUTH_TOKEN": api_key,
             "ANTHROPIC_BASE_URL": provider.api_base,
-        },
-        "model": model,
-        "alwaysThinkingEnabled": False,
-    }
+        }
+
+    data = dict(existing or {})
+    current_env = data.get("env")
+    if not isinstance(current_env, dict):
+        current_env = {}
+    data["env"] = {**current_env, **env}
+    data["model"] = model
+    data["alwaysThinkingEnabled"] = False
+    return data
 
 
 # ---------------- Codex（~/.codex/config.toml） ----------------

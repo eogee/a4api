@@ -16,6 +16,22 @@ def _require_provider(db: Session, provider_id: int):
     return p
 
 
+def _validate_targets(provider, targets: str | None) -> None:
+    """Codex 依赖 OpenAI 兼容（Responses）接口：目标含 codex 但服务商非 openai 时拒绝保存。
+
+    与切换时 [switch.py] 的校验保持一致，让错误在保存阶段就暴露，而非留到切换才报。
+    """
+    if not targets:
+        return
+    has_codex = any(t.strip() == "codex" for t in targets.split(","))
+    if has_codex and provider.api_type != "openai":
+        raise HTTPException(
+            400,
+            f"Codex 需使用 OpenAI 兼容（Responses）接口，"
+            f"当前服务商「{provider.name}」不是 OpenAI 兼容类型，请更换服务商或去掉 Codex 目标",
+        )
+
+
 @router.get("", response_model=list[schemas.ConfigOut])
 def list_configs(db: Session = Depends(get_db)):
     return crud.get_configs(db)
@@ -23,7 +39,8 @@ def list_configs(db: Session = Depends(get_db)):
 
 @router.post("", response_model=schemas.ConfigOut)
 def create_config(body: schemas.ConfigCreate, db: Session = Depends(get_db)):
-    _require_provider(db, body.provider_id)
+    provider = _require_provider(db, body.provider_id)
+    _validate_targets(provider, body.targets)
     data = body.model_dump()
     data["api_key_encrypted"] = encrypt_text(body.api_key)
     data.pop("api_key")
@@ -44,8 +61,10 @@ def update_config(config_id: int, body: schemas.ConfigUpdate, db: Session = Depe
     if not c:
         raise HTTPException(404, "配置方案不存在")
     data = body.model_dump(exclude_unset=True)
+    provider = c.provider
     if "provider_id" in data:
-        _require_provider(db, data["provider_id"])
+        provider = _require_provider(db, data["provider_id"])
+    _validate_targets(provider, data.get("targets", c.targets))
     if body.api_key:
         data["api_key_encrypted"] = encrypt_text(body.api_key)
     data.pop("api_key", None)
