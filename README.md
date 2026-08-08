@@ -2,24 +2,26 @@
 
 一个开箱即用的 **Agent LLM 服务商切换工具**，通过可视化界面读写 `~/.claude/settings.json` 与 `~/.codex/config.toml`，让 **Claude Code 与 Codex** 在不同服务商、模型、API Key 之间**一键切换**，无需手动编辑配置文件。
 
-Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Responses 接口，对国内用户常用的 OpenAI 兼容服务商（DeepSeek、智谱、火山方舟等）支持有限。a4api 通过内置的**本地翻译代理**：把 Anthropic 请求实时翻译成 OpenAI Chat Completions 格式转发给上游，让 Claude Code 也能流畅使用任意 OpenAI 兼容 API；对原生支持 Responses 的服务商（如 DeepSeek）让 Codex **直连上游**，对仅提供 Chat Completions 的服务商（如智谱）则由代理把 Responses 翻译转发。一套配置即可同时覆盖 Claude Code 与 Codex。
+Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Responses 接口，对国内用户常用的 OpenAI 兼容服务商（DeepSeek、智谱等）以及 OpenRouter 这类聚合网关支持有限。a4api 通过内置的**本地翻译代理**：把 Anthropic 请求实时翻译成 OpenAI Chat Completions 格式转发给上游，让 Claude Code 也能流畅使用任意 OpenAI 兼容 API；对原生支持 Responses 的服务商（如 DeepSeek）让 Codex **直连上游**，对仅提供 Chat Completions 的服务商（如智谱）则由代理把 Responses 翻译转发。一套配置即可同时覆盖 Claude Code 与 Codex。
 
 核心特性：配置方案卡片化管理、切换前自动备份、API Key 采用 Windows DPAPI 加密存储、本地代理仅监听本机并以随机 token 鉴权。无论你是想快速体验各家模型，还是想统一管理团队的 API 配置，都能通过几个点击完成。
 
-## 下载与使用
+## 下载、安装与使用
 
-### 下载
+### 下载安装
 
-从 Gitee **发行版（Release）** 页面下载 `a4api.exe`：
+从 Gitee **发行版（Release）** 页面下载安装包 `a4api-setup-*.exe`：
 
 - **下载地址**：https://gitee.com/eogee/a4api/releases （选择最新版本）
-- **系统要求**：Windows 10/11 64 位，**无需安装 Python**，单文件即点即用
+- **系统要求**：Windows 10/11 64 位，**无需安装 Python**
 - 建议核对下载页提供的 SHA256 校验值，确保文件完整未被篡改
+
+安装包采用**每用户安装（免 UAC）**：双击运行后按向导安装到当前用户目录，全程无需管理员权限。安装完成后自动创建开始菜单与桌面快捷方式，并可在「设置 → 应用」中卸载。
 
 ### 运行
 
-1. 下载 `a4api.exe` 后双击运行
-2. 首次运行若出现 **Windows SmartScreen 提示**，点击「更多信息 → 仍要运行」即可（应用未做商业代码签名，属正常现象，不影响功能）
+1. 安装完成后，从**开始菜单**或**桌面快捷方式**启动 a4api
+2. 首次安装/运行时若出现 **Windows SmartScreen 提示**，点击「更多信息 → 仍要运行」即可（应用未做商业代码签名，属正常现象，不影响功能）
 3. 打开界面后选择预置服务商模板，填入 API Key 即可一键切换
 
 ### 数据与隐私
@@ -30,8 +32,9 @@ Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Respons
 
 ### 常见问题
 
-- **杀毒软件报毒**：PyInstaller 打包的 exe 偶被安全软件误报，请添加信任或排除；可将样本提交给对应厂商申诉误报
-- **升级**：直接下载新版替换旧文件即可，数据与配置会保留
+- **杀毒软件报毒**：PyInstaller 打包的程序偶被安全软件误报，请添加信任或排除；可将样本提交给对应厂商申诉误报
+- **升级**：直接运行新版 `a4api-setup-*.exe` 覆盖安装即可，数据与配置（`%APPDATA%\a4api\`）会保留；升级前会自动停止后台翻译代理并清理旧文件
+- **卸载**：在「设置 → 应用」中卸载；程序文件会移除，运行数据（数据库、配置备份）保留在 `%APPDATA%\a4api\`，如需彻底清除请手动删除该目录
 - **反馈问题**：请附上 `~/.a4api/logs/a4api.log` 日志，便于定位
 
 ### 提交 Issue 要求
@@ -53,9 +56,10 @@ Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Respons
 
 ## 功能
 
-- 预置 6 个常用服务商模板（DeepSeek、智谱、火山方舟、本地推理等），一键生成配置方案
+- 预置 6 个常用服务商模板（DeepSeek、智谱、OpenRouter、本地推理等），一键生成配置方案
+- 选择服务商时支持按名称关键字实时搜索（如输入 `openrouter`、`deep` 即可快速定位）
 - 支持 Anthropic 协议与 OpenAI 兼容 API（切换时自动启动本地翻译代理进程，关闭工具后仍可继续使用）
-- 每个配置方案可选应用目标：Claude Code、Codex 或两者（Codex 使用 OpenAI Responses 接口写入 `~/.codex/config.toml`）
+- 每个配置方案可选应用目标：Claude Code、Codex 或两者（Codex 使用 OpenAI Responses 接口写入 `~/.codex/config.toml`；原生支持 Responses 的上游如 DeepSeek 直连，其余经本地翻译代理）
 - 配置方案卡片化管理：新增、编辑、删除、一键切换
 - 当前生效配置醒目高亮
 - 切换前自动备份原配置（滚动保留最近 5 份），原子写入防损坏
@@ -66,16 +70,20 @@ Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Respons
 
 ### 预置服务商模板
 
-首次启动自动写入，可增删改：
+启动时自动写入并按模板定义同步，可增删改：
 
-| 服务商 | API 地址 | 协议 |
-|--------|----------|------|
-| DeepSeek | `https://api.deepseek.com/anthropic` | Anthropic |
-| 智谱 | `https://open.bigmodel.cn/api/anthropic` | Anthropic |
-| 火山方舟 | `https://ark.cn-beijing.volces.com/api/coding` | Anthropic |
-| 智谱 OpenAI 兼容接口 | `https://open.bigmodel.cn/api/paas/v4` | OpenAI |
-| 本地 LLM Studio 接口 | `http://127.0.0.1:1234/v1` | OpenAI |
-| DeepSeek（OpenAI 兼容） | `https://api.deepseek.com/` | OpenAI |
+| 服务商 | API 地址 | 协议 | 原生 Responses |
+|--------|----------|------|----------------|
+| DeepSeek-anthropic | `https://api.deepseek.com/anthropic` | Anthropic | — |
+| 智谱-anthropic | `https://open.bigmodel.cn/api/anthropic` | Anthropic | — |
+| DeepSeek-openai | `https://api.deepseek.com/` | OpenAI | ✅ 直连 |
+| 智谱-openai | `https://open.bigmodel.cn/api/paas/v4` | OpenAI | — |
+| OpenRouter-openai | `https://openrouter.ai/api/v1` | OpenAI | — |
+| 本地llmstudio-openai | `http://127.0.0.1:1234/v1` | OpenAI | — |
+
+> 模板命名遵循「服务商-协议」约定：同一服务商可能同时提供 Anthropic 与 OpenAI 兼容两套接口，因此预置两条记录（如 `DeepSeek-anthropic` / `DeepSeek-openai`）。OpenRouter 为 OpenAI 兼容聚合网关，配置方案中填入其 API Key 即可路由到 OpenRouter 上架的各家模型。
+>
+> **原生 Responses**：勾选后 Codex 直接连接上游 `/responses` 接口，无需本地翻译代理。DeepSeek 官方原生支持 OpenAI Responses（仅 `deepseek-v4-flash` 模型），其余 OpenAI 兼容服务商默认经本地代理转发。内置模板在升级时会按模板定义自动同步（`api_base` / 协议 / 原生 Responses），自定义服务商不受影响。
 
 ## 安全设计
 
@@ -99,7 +107,7 @@ Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Respons
 
 - 修改 `~/.claude/settings.json`、`~/.codex/config.toml` 前**自动备份**，滚动保留最近 5 份，切换失败可随时回滚。
 - 所有写入均采用**原子写**：先写临时文件并 `fsync`，再 `os.replace` 覆盖目标，避免写入中途崩溃导致配置文件损坏。
-- 写入只更新目标字段（env / model 等），其余配置原样保留，不破坏用户已有设置。
+- 写入采用**合并式更新**：只覆盖工具托管的字段（`env` 中的 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL`、`model`、`alwaysThinkingEnabled`），`hooks`、`permissions`、`mcpServers` 及其他 `env` 变量原样保留，不破坏用户已有的 hook、授权与配置。
 
 ### 4. 后端 API 防护
 
@@ -147,9 +155,15 @@ uv run uvicorn backend.app.main:app --port 8000
 
 ## 打包
 
+前置：编译安装包需要 [Inno Setup 6](https://jrsoftware.org/isinfo.php)（`winget install --id JRSoftware.InnoSetup -e --accept-source-agreements`）。
+
 ```bash
-uv run python build.py  # 生成 dist/a4api.exe（单 exe）
+uv run python build.py                 # 生成 dist/a4api/（文件夹版 onedir）
+uv run python build.py --installer     # 文件夹版 + 编译安装包 dist/a4api-setup-<版本>.exe
+uv run python build.py --onefile       # 可选：生成单 exe（临时分发用）
 ```
+
+版本号自动取自 `pyproject.toml`（`[project].version`），也可用 `--version` 覆盖；ISCC.exe 自动探测（`--iscc` 指定路径）。
 
 ## 项目结构
 

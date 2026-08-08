@@ -11,6 +11,14 @@ import threading
 # 允许从项目根目录导入 backend 包（pyinstaller 打包时也依赖此路径策略）
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+if "--proxy-stop" in sys.argv:
+    # 卸载/升级时停止后台翻译代理。必须在此处短路，
+    # 避免拉入 backend.app.main 触发 FastAPI 初始化（建库、seed 等副作用）。
+    from backend.app.proxy_standalone import stop_proxy
+
+    stop_proxy()
+    sys.exit(0)
+
 import webview  # noqa: E402
 
 from backend.app.main import app  # noqa: E402
