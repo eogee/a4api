@@ -11,6 +11,7 @@ dependencies = [
     "pywebview>=5.0",
     "tomli>=2.0; python_version < '3.11'",
     "tomli_w>=1.0",
+    "cryptography>=42",
 ]
 
 [dependency-groups]

@@ -7,10 +7,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from . import models  # noqa: F401  # 注册模型建表
-from .api.v1 import configs, providers, switch
+from .api.v1 import configs, providers, switch, update
 from .database import Base, engine, ensure_schema
 from .logging_config import setup_logging
 from .seed import seed_providers
+from .version import current_version
 
 setup_logging()
 
@@ -23,7 +24,7 @@ def _frontend_dir() -> Path:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="a4api", version="0.1.0")
+    app = FastAPI(title="a4api", version=current_version())
 
     # 本地工具只允许本机页面访问 API，避免任意网站读取/操作配置
     app.add_middleware(
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(providers.router, prefix="/api/v1", tags=["providers"])
     app.include_router(configs.router, prefix="/api/v1", tags=["configs"])
     app.include_router(switch.router, prefix="/api/v1", tags=["switch"])
+    app.include_router(update.router, prefix="/api/v1", tags=["update"])
 
     # 前端静态资源：开发/桌面运行时由后端统一托管
     frontend_dir = _frontend_dir()

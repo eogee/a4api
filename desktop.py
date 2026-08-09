@@ -19,6 +19,55 @@ if "--proxy-stop" in sys.argv:
     stop_proxy()
     sys.exit(0)
 
+if "--apply-update" in sys.argv:
+    # 自更新应用阶段（由 updater.apply 以 DETACHED_PROCESS 独立拉起）：
+    # 等待主实例退出并释放 AppMutex，然后启动安装器并立即退出。
+    # 必须短路在 import webview / FastAPI / acquire() 之前，仅用 stdlib。
+    import ctypes
+    import subprocess
+    import time
+    from ctypes import wintypes
+
+    _MUTEX = "Local\\A4ApiDesktopApp"
+    _ERROR_ALREADY_EXISTS = 183
+
+    def _wait_mutex_released(timeout_s: float = 20) -> bool:
+        """轮询等待主实例释放 AppMutex；拿到所有权立即释放给安装器。"""
+        if sys.platform != "win32":
+            time.sleep(2)  # 非 Windows 开发兜底
+            return True
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        kernel32.GetLastError.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            handle = kernel32.CreateMutexW(None, False, _MUTEX)
+            if not handle:  # 创建失败（如权限）→ 重试，不当作已就绪
+                time.sleep(0.2)
+                continue
+            if kernel32.GetLastError() != _ERROR_ALREADY_EXISTS:
+                kernel32.CloseHandle(handle)  # 立即释放，让安装器能创建互斥体
+                return True
+            kernel32.CloseHandle(handle)
+            time.sleep(0.2)
+        return False
+
+    idx = sys.argv.index("--apply-update")
+    installer = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else ""
+    if not installer:
+        sys.exit(2)
+    # 主实例未在超时内释放 AppMutex（如异常卡死）→ 放弃应用，避免 Inno 覆盖失败/残留
+    if not _wait_mutex_released():
+        sys.exit(3)
+    # 用 Popen 启动可见安装向导后立即退出：不 run 等待，否则本进程会一直占用
+    # _internal 的 DLL 句柄，Inno 升级时 DelTree(_internal) 将残留旧文件。
+    subprocess.Popen([installer], close_fds=True)
+    time.sleep(1)
+    os._exit(0)
+
 import webview  # noqa: E402
 
 from backend.app.main import app  # noqa: E402

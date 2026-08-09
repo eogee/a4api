@@ -495,6 +495,145 @@ layui.use(['layer', 'form', 'element'], function () {
     });
   }
 
+  /* ---------- 自动更新 ---------- */
+  var updateDlTimer = null;
+
+  function fmtBytes(n) {
+    if (!n) return '0 B';
+    var units = ['B', 'KB', 'MB', 'GB'];
+    var i = 0;
+    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+    return (n >= 10 ? n.toFixed(0) : n.toFixed(1)) + ' ' + units[i];
+  }
+
+  function checkUpdate(silent) {
+    apiGet('/update/check').then(function (r) {
+      if (r.status === 'update_available') {
+        // 之前已下载校验通过 → 直接提示应用，避免重复下载
+        if (r.downloaded) {
+          showApplyConfirm(r.downloaded_version || r.latest_version);
+        } else {
+          showUpdatePrompt(r);
+        }
+      } else if (!silent) {
+        if (r.status === 'up_to_date') {
+          layer.msg('已是最新版本 v' + escapeHtml(r.current_version), { icon: 1 });
+        } else if (r.status === 'ignored') {
+          layer.msg('已忽略该版本（v' + escapeHtml(r.latest_version) + '）', { icon: 0 });
+        } else if (r.status === 'too_old') {
+          layer.msg(r.error || '当前版本过旧，请下载完整安装包更新', { icon: 2 });
+        } else {
+          layer.msg('检查更新失败：' + (r.error || '网络或服务器不可达'), { icon: 2 });
+        }
+      }
+    }).catch(function (e) {
+      if (!silent) layer.msg('检查更新失败：' + e.message, { icon: 2 });
+    });
+  }
+
+  function showUpdatePrompt(r) {
+    var notes = (r.notes || '').trim();
+    var notesHtml = '<div class="update-notes">' + (notes ? escapeHtml(notes) : '暂无更新说明') + '</div>';
+    if (r.notes_url && /^https:\/\//.test(r.notes_url)) {
+      notesHtml += '<div class="update-notes-url"><a href="' + escapeHtml(r.notes_url) + '" target="_blank" rel="noopener">查看完整发布说明</a></div>';
+    }
+    layer.open({
+      type: 1,
+      title: '发现新版本 v' + escapeHtml(r.latest_version),
+      area: ['460px', 'auto'],
+      content: '<div class="update-panel">' +
+        '<p class="update-versions">当前 <b>v' + escapeHtml(r.current_version) + '</b> → 最新 <b>v' + escapeHtml(r.latest_version) + '</b></p>' +
+        notesHtml + '</div>',
+      btn: ['立即下载更新', '忽略此版本', '暂不'],
+      yes: function (index) {
+        layer.close(index);
+        startDownload(r.latest_version);
+      },
+      btn2: function (index) {
+        layer.close(index);
+        apiSend('/update/ignore', 'POST', { version: r.latest_version }).catch(function () {});
+      },
+      btn3: function (index) { layer.close(index); }
+    });
+  }
+
+  function startDownload(version) {
+    var index = layer.open({
+      type: 1,
+      title: '正在下载更新 v' + escapeHtml(version),
+      area: ['440px', 'auto'],
+      content: '<div class="update-download">' +
+        '<div class="layui-progress layui-progress-big" lay-showpercent="true">' +
+          '<div class="layui-progress-bar layui-bg-green" style="width:0%"></div>' +
+        '</div>' +
+        '<p class="update-download-status" id="update-dl-status">准备中…</p></div>',
+      btn: ['取消下载'],
+      yes: function (idx) {
+        apiSend('/update/cancel', 'POST', {}).then(function () { layer.close(idx); }).catch(function () {});
+      }
+    });
+    apiSend('/update/download', 'POST', { version: version }).then(function () {
+      pollDownloadProgress(index, version);
+    }).catch(function (e) {
+      layer.close(index);
+      layer.msg('开始下载失败：' + e.message, { icon: 2 });
+    });
+  }
+
+  function pollDownloadProgress(layerIndex, version) {
+    clearInterval(updateDlTimer);
+    updateDlTimer = setInterval(function () {
+      apiGet('/update/progress').then(function (p) {
+        if (p.status === 'queued' || p.status === 'downloading') {
+          var pct = p.total ? Math.min(100, Math.round(p.downloaded / p.total * 100)) : 0;
+          var bar = document.querySelector('.update-download .layui-progress-bar');
+          if (bar) bar.style.width = pct + '%';
+          var st = document.getElementById('update-dl-status');
+          if (st) st.textContent = '已下载 ' + fmtBytes(p.downloaded) + (p.total ? ' / ' + fmtBytes(p.total) : '');
+        } else if (p.status === 'done') {
+          clearInterval(updateDlTimer);
+          layer.close(layerIndex);
+          showApplyConfirm(version);
+        } else if (p.status === 'cancelled') {
+          clearInterval(updateDlTimer);
+          layer.close(layerIndex);
+          layer.msg('已取消下载', { icon: 0 });
+        } else if (p.status === 'failed') {
+          clearInterval(updateDlTimer);
+          layer.close(layerIndex);
+          layer.msg('下载失败：' + (p.error || '未知错误'), { icon: 2 });
+        }
+      }).catch(function () { /* 瞬时错误继续轮询 */ });
+    }, 500);
+  }
+
+  function showApplyConfirm(version) {
+    layer.open({
+      type: 1,
+      title: '更新包下载完成',
+      area: ['420px', 'auto'],
+      content: '<div class="update-panel">' +
+        '<p>v' + escapeHtml(version) + ' 安装包已下载并通过 SHA256 校验。</p>' +
+        '<p class="update-warn">是否现在运行安装程序完成更新？更新过程中 a4api 将自动关闭。</p></div>',
+      btn: ['立即更新', '稍后'],
+      yes: function (index) {
+        layer.close(index);
+        doApply();
+      },
+      btn2: function (index) { layer.close(index); }
+    });
+  }
+
+  function doApply() {
+    var tip = layer.msg('正在启动更新安装程序，a4api 即将关闭…', { icon: 1, time: 0 });
+    apiSend('/update/apply', 'POST', {}).then(function () {
+      // 应用随即退出，这里无需清理
+    }).catch(function (e) {
+      layer.close(tip);
+      layer.msg('启动更新失败：' + e.message, { icon: 2 });
+    });
+  }
+
   /* ---------- 事件绑定 ---------- */
   document.getElementById('btn-add').addEventListener('click', function () {
     openForm(null);
@@ -503,6 +642,10 @@ layui.use(['layer', 'form', 'element'], function () {
   document.getElementById('btn-add-provider').addEventListener('click', function () {
     providerReturnToConfig = false;
     openProviderForm(null);
+  });
+
+  document.getElementById('btn-check-update').addEventListener('click', function () {
+    checkUpdate(false);
   });
 
   document.getElementById('card-grid').addEventListener('click', function (e) {
@@ -530,4 +673,6 @@ layui.use(['layer', 'form', 'element'], function () {
   loadStatus();
   loadProxyStatus();
   loadProviders();
+  // 启动时静默检查一次更新；失败不打扰（silent=true 只弹更新，不弹错误）
+  checkUpdate(true);
 });

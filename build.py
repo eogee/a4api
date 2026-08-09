@@ -7,6 +7,7 @@
     uv run python build.py --installer --iscc C:\\path\\to\\ISCC.exe
 """
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -109,11 +110,24 @@ def _ensure_icon(resources: Path) -> Path | None:
     return ico if ico.exists() else None
 
 
-def _run_pyinstaller(onefile: bool) -> None:
+def _write_version_json(version: str) -> Path:
+    """把运行时版本写入 build/version.json，随包内嵌（sys._MEIPASS/version.json）。
+
+    运行时由 backend/app/version.py 读取，作为冻结态的版本单一来源。
+    """
+    build_dir = ROOT / "build"
+    build_dir.mkdir(parents=True, exist_ok=True)
+    p = build_dir / "version.json"
+    p.write_text(json.dumps({"version": version}), encoding="utf-8")
+    return p
+
+
+def _run_pyinstaller(onefile: bool, version: str) -> None:
     frontend = ROOT / "frontend"
     resources = ROOT / "resources"
     ico = _ensure_icon(resources)
     sep = os.pathsep
+    version_json = _write_version_json(version)
 
     cmd = [
         sys.executable, "-m", "PyInstaller",
@@ -121,6 +135,7 @@ def _run_pyinstaller(onefile: bool) -> None:
         "--windowed",
         "--name", "a4api",
         "--add-data", f"{frontend}{sep}frontend",
+        "--add-data", f"{version_json}{sep}.",
     ]
     if onefile:
         cmd.append("--onefile")
@@ -159,7 +174,7 @@ def main() -> None:
     args = parser.parse_args()
 
     version = _app_version(args.version)
-    _run_pyinstaller(args.onefile)
+    _run_pyinstaller(args.onefile, version)
 
     if args.installer:
         iscc = _find_iscc(args.iscc)

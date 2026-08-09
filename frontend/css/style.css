@@ -96,6 +96,19 @@ body {
   user-select: none;
 }
 
+.update-link {
+  font-size: 13px;
+  color: #16baaa;
+  cursor: pointer;
+  user-select: none;
+  text-decoration: none;
+}
+
+.update-link:hover {
+  color: #0e9e90;
+  text-decoration: underline;
+}
+
 /* ---------- 主体 ---------- */
 .app-main {
   max-width: 1120px;
@@ -614,6 +627,61 @@ body {
 
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* ---------- 更新弹窗 ---------- */
+.update-panel {
+  padding: 20px 24px;
+  color: #3d4044;
+}
+
+.update-panel p {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.update-versions {
+  color: #5a5e63;
+}
+
+.update-notes {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e2e8e8;
+  border-radius: 8px;
+  background: #fafbfb;
+  color: #5a5e63;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.update-notes-url {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.update-notes-url a {
+  color: #16baaa;
+}
+
+.update-warn {
+  color: #b0563a;
+}
+
+.update-download {
+  padding: 24px 28px;
+}
+
+.update-download-status {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #8a8e94;
+  text-align: right;
 }
 
 /* ---------- 响应式 ---------- */
