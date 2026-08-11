@@ -687,11 +687,11 @@ body {
 .update-notes blockquote {
   margin: 8px 0;
   padding: 6px 12px;
-  border-left: 3px solid #16baaa;
-  background: #f4fbfa;
+  border-left: 3px solid #dce2e2;
+  background: #eefafa;
   color: #5a5e63;
 }
-.update-notes a { color: #16baaa; }
+.update-notes a { color: #2f6fb4; }
 .update-notes a:hover { text-decoration: underline; }
 
 .update-notes-url {
