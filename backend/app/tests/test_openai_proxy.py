@@ -1,4 +1,9 @@
-from backend.app.openai_proxy import translate_request, translate_response
+from backend.app.openai_proxy import (
+    _retry_after_headers,
+    _upstream_status,
+    translate_request,
+    translate_response,
+)
 from backend.app.responses_translator import build_payload, _sanitize_tool_messages
 
 
@@ -205,6 +210,79 @@ def test_build_payload_sanitizes_broken_dialog():
     assert roles == ["user"]
     # 确保无悬空 tool_call 残留，上游不会拒绝
     assert all(m.get("role") != "assistant" or not m.get("tool_calls") for m in out["messages"])
+
+
+def test_sanitize_tool_messages_reorders_output_before_call():
+    """回归：function_call_output 出现在 function_call 之前（会话中断/重连时可能
+    发生）时，应把 tool 响应重排到 assistant tool_calls 之后。多数上游校验
+    「assistant 的 tool_calls 必须紧跟 tool 响应」，顺序颠倒会整轮 400。"""
+    messages = [
+        {"role": "tool", "tool_call_id": "shell_command:1", "content": "ok"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "shell_command:1",
+                    "type": "function",
+                    "function": {"name": "shell_command", "arguments": "{}"},
+                }
+            ],
+        },
+    ]
+    out = _sanitize_tool_messages(messages)
+    assert [m["role"] for m in out] == ["assistant", "tool"]
+    assert out[1]["tool_call_id"] == "shell_command:1"
+
+
+def test_build_payload_reorders_output_before_call():
+    """端到端：残缺 Responses input 中 function_call_output 在 function_call 之前
+    时，翻译出的 chat.completions 顺序正确（assistant 在前、tool 在后）。"""
+    body = {
+        "model": "test-model",
+        "stream": False,
+        "input": [
+            {"type": "function_call_output", "call_id": "shell_command:1", "output": "ok"},
+            {
+                "type": "function_call",
+                "call_id": "shell_command:1",
+                "name": "shell_command",
+                "arguments": "{}",
+            },
+        ],
+    }
+    out = build_payload(body)
+    roles = [m["role"] for m in out["messages"]]
+    assert roles == ["assistant", "tool"]
+    assert out["messages"][0]["tool_calls"][0]["id"] == "shell_command:1"
+    assert out["messages"][1]["tool_call_id"] == "shell_command:1"
+
+
+def test_upstream_status_preserves_4xx():
+    """回归：上游 429/408 等可退避状态应原样透传，而不是被统一包装成 502，
+    否则客户端没有 Retry-After 参考、会在 502 下无间隔重连进一步撞限流。"""
+    assert _upstream_status(429) == 429
+    assert _upstream_status(408) == 408
+    assert _upstream_status(400) == 400
+    assert _upstream_status(500) == 502
+    assert _upstream_status(503) == 502
+
+
+def test_retry_after_headers_passthrough():
+    """回归：上游返回 Retry-After 时透传给客户端，供其按建议时间退避。"""
+
+    class _Resp:
+        def getheader(self, name):
+            if name == "Retry-After":
+                return "1"
+
+    assert _retry_after_headers(_Resp()) == {"Retry-After": "1"}
+
+    class _NoRa:
+        def getheader(self, name):
+            return None
+
+    assert _retry_after_headers(_NoRa()) == {}
 
 
 def test_translate_response_basic():

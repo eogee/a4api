@@ -178,13 +178,16 @@ def _sanitize_tool_messages(messages: list) -> list:
     """剔除悬空的 tool_call / tool 响应，避免上游以「tool_call 无响应」拒绝。
 
     背景：Codex 在 Windows 沙箱故障或会话被中断时，可能发来残缺对话——
-    有 function_call 但缺对应的 function_call_output，或反之有孤立结果。
-    多数 OpenAI 兼容上游强制校验「assistant 的每个 tool_call 都须有 role=tool
-    的响应」，此类残缺对话会被整轮 400 拒绝。本函数双向清理：
-      - assistant 消息中无 tool 响应的 tool_call 被移除；若全被移除则降级为纯
+    有 function_call 但缺对应的 function_call_output，或反之有孤立结果，
+    甚至 function_call_output 出现在其 function_call 之前（顺序颠倒）。
+    多数 OpenAI 兼容上游强制校验「assistant 的每个 tool_call 都须紧跟着
+    role=tool 的响应」，此类残缺对话会被整轮 400 拒绝。本函数做三遍清理：
+      - 剔除 assistant 消息中无 tool 响应的 tool_call；若全被剔除则降级为纯
         文本消息（有内容）或整条丢弃（无内容）；
-      - role=tool 但找不到来源 tool_call 的孤立响应被移除。
-    对配对完整的合法对话是无操作（no-op）。
+      - 重排 tool 响应：把出现在其来源 assistant 消息之前的响应移到该消息之后
+        （chat/completions 不允许 tool 响应先于 assistant tool_calls）；
+      - 丢弃仍找不到来源的孤立 tool 响应。
+    对配对完整且顺序正确的合法对话是无操作（no-op）。
     """
     # 第一遍：收集有 tool 响应的 call_id
     responded = {
@@ -206,18 +209,34 @@ def _sanitize_tool_messages(messages: list) -> list:
             out.append(m2)
         else:
             out.append(m)
-    # 第二遍：去掉找不到来源 assistant tool_call 的孤立 tool 响应
-    call_ids = {
-        tc.get("id")
-        for m in out
-        if m.get("role") == "assistant" and m.get("tool_calls")
-        for tc in m["tool_calls"]
-    }
-    return [
-        m
-        for m in out
-        if not (m.get("role") == "tool" and m.get("tool_call_id") not in call_ids)
-    ]
+
+    # 第二、三遍：重排 tool 响应到其来源 assistant 之后，并丢弃无来源的孤立响应。
+    # 用「挂起缓冲」处理 tool 响应先于其 assistant 出现的情形：先缓冲，等遇到
+    # 声明了该 call_id 的 assistant 消息时再追加到其后；走到末尾仍未消费的丢弃。
+    emitted: set = set()  # 已出现的 assistant tool_call id
+    result: list = []
+    pending: list = []  # 尚未找到来源的 tool 响应
+    for m in out:
+        if m.get("role") == "tool":
+            if m.get("tool_call_id") in emitted:
+                result.append(m)
+            else:
+                pending.append(m)
+            continue
+        result.append(m)
+        if m.get("role") == "assistant":
+            new_ids = {tc.get("id") for tc in m.get("tool_calls") or [] if tc.get("id")}
+            if not new_ids:
+                continue
+            emitted |= new_ids
+            still: list = []
+            for t in pending:
+                if t.get("tool_call_id") in emitted:
+                    result.append(t)
+                else:
+                    still.append(t)
+            pending = still
+    return result
 
 
 def _map_usage(usage: dict) -> dict:

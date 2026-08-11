@@ -586,6 +586,21 @@ def _error_body(message: str, etype: str = "api_error") -> dict:
     return {"type": "error", "error": {"type": etype, "message": message}}
 
 
+def _upstream_status(status: int) -> int:
+    """上游 4xx 保留原状态码，5xx 统一映射为 502（Bad Gateway）。
+
+    429/408 等可退避状态透传给客户端后，客户端会读取 Retry-After 并退避重试，
+    而不是在 502 下无间隔猛打重连风暴、进一步撞上游限流。
+    """
+    return status if 400 <= status < 500 else 502
+
+
+def _retry_after_headers(resp) -> dict:
+    """透传上游 Retry-After，供客户端在 429/503 时按建议时间退避。"""
+    ra = resp.getheader("Retry-After")
+    return {"Retry-After": ra} if ra else {}
+
+
 def _is_grammar_error(status: int, detail: str) -> bool:
     """识别 llama.cpp 等本地推理服务的工具 schema 解析失败。"""
     return status == 400 and any(
@@ -843,7 +858,8 @@ async def responses(request: Request):
             _debug_log(payload, resp.status, detail.encode("utf-8"))
         return JSONResponse(
             _error_body(f"upstream HTTP {resp.status}: {detail[:500]}"),
-            status_code=502,
+            status_code=_upstream_status(resp.status),
+            headers=_retry_after_headers(resp),
         )
 
     if stream:
