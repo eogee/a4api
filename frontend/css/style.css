@@ -654,11 +654,45 @@ body {
   color: #5a5e63;
   font-size: 13px;
   line-height: 1.7;
-  white-space: pre-wrap;
+  white-space: normal;
   word-break: break-word;
   max-height: 220px;
   overflow-y: auto;
 }
+/* 渲染后的 Markdown 内容样式 */
+.update-notes h1, .update-notes h2, .update-notes h3 {
+  margin: 10px 0 4px;
+  font-size: 15px;
+  color: #1c1e21;
+}
+.update-notes h1:first-child, .update-notes h2:first-child, .update-notes h3:first-child { margin-top: 0; }
+.update-notes p { margin: 6px 0; }
+.update-notes ul, .update-notes ol { margin: 6px 0 6px 20px; padding: 0; }
+.update-notes li { margin: 3px 0; }
+.update-notes code {
+  background: #eef1f1;
+  border-radius: 5px;
+  padding: 1px 5px;
+  font-family: Consolas, Menlo, monospace;
+  font-size: 12px;
+}
+.update-notes pre {
+  background: #f0f3f3;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0;
+  overflow-x: auto;
+}
+.update-notes pre code { background: transparent; padding: 0; }
+.update-notes blockquote {
+  margin: 8px 0;
+  padding: 6px 12px;
+  border-left: 3px solid #16baaa;
+  background: #f4fbfa;
+  color: #5a5e63;
+}
+.update-notes a { color: #16baaa; }
+.update-notes a:hover { text-decoration: underline; }
 
 .update-notes-url {
   margin-top: 10px;

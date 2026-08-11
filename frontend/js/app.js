@@ -533,7 +533,7 @@ layui.use(['layer', 'form', 'element'], function () {
 
   function showUpdatePrompt(r) {
     var notes = (r.notes || '').trim();
-    var notesHtml = '<div class="update-notes">' + (notes ? escapeHtml(notes) : '暂无更新说明') + '</div>';
+    var notesHtml = '<div class="update-notes">' + (notes ? renderMarkdown(notes) : '暂无更新说明') + '</div>';
     if (r.notes_url && /^https:\/\//.test(r.notes_url)) {
       notesHtml += '<div class="update-notes-url"><a href="' + escapeHtml(r.notes_url) + '" target="_blank" rel="noopener">查看完整发布说明</a></div>';
     }

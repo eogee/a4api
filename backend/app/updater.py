@@ -19,6 +19,7 @@ import sys
 import tempfile
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -46,7 +47,9 @@ GITEE_API_LATEST_URL = "https://gitee.com/api/v5/repos/eogee/a4api/releases/late
 MANIFEST_TTL = 600  # 清单缓存秒数
 MANIFEST_MAX_BYTES = 512 * 1024
 MAX_DOWNLOAD_SIZE = 300 * 1024 * 1024
-_HTTP_TIMEOUT = 30
+_HTTP_TIMEOUT = 30  # 大文件（安装包）下载超时
+_MANIFEST_TIMEOUT = 8  # 更新清单（GitHub/Gitee）单次请求超时；下载不经 _http_get，不受影响
+_MANIFEST_ATTEMPTS = 1  # 清单双源并行，冗余来自「两源」而非「重试」
 
 _ALLOWED_HOSTS = {
     "github.com",
@@ -298,11 +301,11 @@ class _HostCheckRedirectHandler(HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def _http_get(url: str, max_bytes: int) -> bytes:
-    """HTTPS GET + 逐跳 host 白名单 + 最终 URL 复检 + 大小上限。"""
+def _http_get(url: str, max_bytes: int, timeout: float) -> bytes:
+    """HTTPS GET + 逐跳 host 白名单 + 最终 URL 复检 + 大小上限。timeout 为该请求 socket 超时。"""
     opener = build_opener(_HostCheckRedirectHandler())
     req = Request(url, headers={"User-Agent": "a4api-updater/1.0"})
-    with opener.open(req, timeout=_HTTP_TIMEOUT) as resp:
+    with opener.open(req, timeout=timeout) as resp:
         if not allowed_host(_host_of(resp.geturl())):
             raise URLError(f"blocked host: {_host_of(resp.geturl())}")
         total = 0
@@ -318,11 +321,11 @@ def _http_get(url: str, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
-def _fetch_url_retry(url: str, max_bytes: int) -> bytes:
+def _fetch_url_retry(url: str, max_bytes: int, timeout: float, attempts: int = 1) -> bytes:
     last: Exception | None = None
-    for _ in range(2):
+    for _ in range(attempts):
         try:
-            return _http_get(url, max_bytes)
+            return _http_get(url, max_bytes, timeout)
         except (HTTPError, URLError, OSError, ValueError) as e:
             last = e
             logger.warning("拉取失败 %s：%s", url, e)
@@ -334,24 +337,58 @@ def _fetch_url_retry(url: str, max_bytes: int) -> bytes:
 
 def _gitee_latest_manifest_url() -> str:
     """Gitee 无 latest 别名，用公开 API 取最新 release 的 tag 再拼清单地址。"""
-    data = json.loads(_fetch_url_retry(GITEE_API_LATEST_URL, MANIFEST_MAX_BYTES).decode("utf-8"))
+    data = json.loads(_fetch_url_retry(
+        GITEE_API_LATEST_URL, MANIFEST_MAX_BYTES,
+        timeout=_MANIFEST_TIMEOUT, attempts=_MANIFEST_ATTEMPTS,
+    ).decode("utf-8"))
     tag = data.get("tag_name", "")
     if not tag:
         raise URLError("gitee latest release has no tag")
     return f"https://gitee.com/eogee/a4api/releases/download/{tag}/latest.json"
 
 
+def _fetch_github_manifest() -> dict:
+    """从 GitHub「latest 别名」拉取并解析清单。"""
+    raw = _fetch_url_retry(
+        GITHUB_MANIFEST_URL, MANIFEST_MAX_BYTES,
+        timeout=_MANIFEST_TIMEOUT, attempts=_MANIFEST_ATTEMPTS,
+    )
+    return json.loads(raw.decode("utf-8"))
+
+
+def _fetch_gitee_manifest() -> dict:
+    """从 Gitee 拉取并解析清单（先经公开 API 拿最新 tag，再拼清单地址）。"""
+    url = _gitee_latest_manifest_url()
+    raw = _fetch_url_retry(
+        url, MANIFEST_MAX_BYTES,
+        timeout=_MANIFEST_TIMEOUT, attempts=_MANIFEST_ATTEMPTS,
+    )
+    return json.loads(raw.decode("utf-8"))
+
+
 def _fetch_from_remote() -> dict:
-    """拉取清单原始 JSON：GitHub 优先，不可达时回退 Gitee。网络 I/O，锁外调用。"""
+    """并行拉取 GitHub / Gitee 清单，首个成功解析的胜出；全部失败抛异常。
+
+    国内访问 GitHub 慢/不通，并行让快源（通常 Gitee）先返回，避免顺序等待
+    GitHub 超时再回退。_fetch_lock 单飞语义由调用方 fetch_manifest 持锁，不变。
+    返回后不等待慢源：shutdown(wait=False) 让仍卡在 socket 超时的线程自行收尾，
+    避免阻塞响应路径等一个必然失败的请求。
+    """
+    ex = ThreadPoolExecutor(max_workers=2)
+    futures = {ex.submit(_fetch_github_manifest), ex.submit(_fetch_gitee_manifest)}
+    last_err: Exception | None = None
     try:
-        return json.loads(_fetch_url_retry(GITHUB_MANIFEST_URL, MANIFEST_MAX_BYTES).decode("utf-8"))
-    except Exception:
-        try:
-            url = _gitee_latest_manifest_url()
-            return json.loads(_fetch_url_retry(url, MANIFEST_MAX_BYTES).decode("utf-8"))
-        except Exception as e:
-            logger.warning("更新清单拉取失败（GitHub 与 Gitee 均不可达）：%s", e)
-            raise
+        for fut in as_completed(futures):
+            try:
+                return fut.result()
+            except Exception as e:
+                last_err = e
+                logger.warning("更新清单源拉取失败：%s", e)
+        raise last_err if last_err is not None else URLError("update manifest unreachable")
+    finally:
+        # 不用 with ThreadPoolExecutor()：其 __exit__ 会 shutdown(wait=True)，
+        # 阻塞在挂起的 GitHub 请求上重新引入延迟。
+        ex.shutdown(wait=False, cancel_futures=True)
 
 
 def fetch_manifest() -> dict:

@@ -284,7 +284,7 @@ def test_fetch_manifest_github_fallback_gitee(monkeypatch, keys):
     m = make_signed(keys)
     calls = []
 
-    def fake_fetch(url, max_bytes):
+    def fake_fetch(url, max_bytes, timeout=None, attempts=None):
         calls.append(url)
         if "github.com" in url:
             raise Exception("github down")
@@ -303,7 +303,7 @@ def test_fetch_manifest_rejects_bad_signature(monkeypatch, keys):
     m = make_signed(keys)
     m["notes"] = "tampered"  # 改后签名失效
     monkeypatch.setattr(updater, "_fetch_url_retry",
-                        lambda url, mx: json.dumps(m).encode("utf-8"))
+                        lambda url, mx, timeout=None, attempts=None: json.dumps(m).encode("utf-8"))
     with pytest.raises(ValueError):
         updater.fetch_manifest()
 
@@ -312,23 +312,68 @@ def test_fetch_manifest_ttl_cache(monkeypatch, keys):
     m = make_signed(keys)
     calls = []
 
-    def fake_fetch(url, max_bytes):
+    def fake_fetch(url, max_bytes, timeout=None, attempts=None):
         calls.append(url)
         return json.dumps(m).encode("utf-8")
 
     monkeypatch.setattr(updater, "_fetch_url_retry", fake_fetch)
     updater.fetch_manifest()
+    after_first = len(calls)
+    assert after_first >= 1  # 并行：GitHub 与 Gitee 源都会发起
     updater.fetch_manifest()
-    assert len(calls) == 1  # 第二次命中缓存，不再触网
+    assert len(calls) == after_first  # 第二次命中缓存，不再触网
 
 
 def test_fetch_manifest_all_down(monkeypatch, keys):
-    def fake_fetch(url, max_bytes):
+    def fake_fetch(url, max_bytes, timeout=None, attempts=None):
         raise Exception("all down")
 
     monkeypatch.setattr(updater, "_fetch_url_retry", fake_fetch)
     with pytest.raises(Exception):
         updater.fetch_manifest()
+
+
+# ---------- _fetch_from_remote：并行双源首胜 ----------
+
+def test_fetch_from_remote_github_wins(monkeypatch):
+    """GitHub 可达时由 GitHub 源返回；清单路径使用短超时。"""
+    m = make_skeleton()
+    fetched = []
+
+    def fake_fetch(url, max_bytes, timeout=None, attempts=None):
+        fetched.append(url)
+        assert timeout == updater._MANIFEST_TIMEOUT
+        return json.dumps(m).encode("utf-8")
+
+    monkeypatch.setattr(updater, "_fetch_url_retry", fake_fetch)
+    got = updater._fetch_from_remote()
+    assert got["version"] == "0.2.0"
+    assert any("github.com" in u for u in fetched)
+
+
+def test_fetch_from_remote_falls_back_to_gitee(monkeypatch):
+    """GitHub 不可达 → Gitee 源（先 API 拿 tag 再拉清单）胜出。"""
+    m = make_skeleton()
+
+    def fake_fetch(url, max_bytes, timeout=None, attempts=None):
+        if "github.com" in url:
+            raise Exception("github down")
+        if url == updater.GITEE_API_LATEST_URL:
+            return json.dumps({"tag_name": "v0.2.0"}).encode("utf-8")
+        return json.dumps(m).encode("utf-8")
+
+    monkeypatch.setattr(updater, "_fetch_url_retry", fake_fetch)
+    got = updater._fetch_from_remote()
+    assert got["version"] == "0.2.0"
+
+
+def test_fetch_from_remote_all_down(monkeypatch):
+    def fake_fetch(url, max_bytes, timeout=None, attempts=None):
+        raise Exception("all down")
+
+    monkeypatch.setattr(updater, "_fetch_url_retry", fake_fetch)
+    with pytest.raises(Exception):
+        updater._fetch_from_remote()
 
 
 # ---------- 下载（本地服务器） ----------
@@ -530,7 +575,7 @@ def test_fetch_manifest_network_outside_lock(monkeypatch, keys):
     m = make_signed(keys)
     acquired_during_network = []
 
-    def fake_fetch(url, max_bytes):
+    def fake_fetch(url, max_bytes, timeout=None, attempts=None):
         # 网络 I/O 进行中：若 _lock 空闲说明 fetch 没持锁（修复前此处会超时失败）
         got = updater._lock.acquire(timeout=0.1)
         if got:
