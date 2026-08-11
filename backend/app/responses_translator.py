@@ -63,7 +63,9 @@ def build_payload(body: dict) -> dict:
                 text = "".join(_part_text(p) for p in (content or []) if isinstance(p, dict))
             if role == "assistant":
                 messages.append({"role": "assistant", "content": text or ""})
-            elif role == "system":
+            elif role in ("system", "developer"):
+                # Codex 会以 developer 角色发送系统指令，但多数 OpenAI 兼容上游
+                # 只认 system，统一映射为 system，避免上游报 role 不合法。
                 messages.append({"role": "system", "content": text})
             else:
                 messages.append({"role": role, "content": text})

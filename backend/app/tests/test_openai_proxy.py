@@ -1,4 +1,5 @@
 from backend.app.openai_proxy import translate_request, translate_response
+from backend.app.responses_translator import build_payload
 
 
 def test_translate_request_with_tools():
@@ -67,6 +68,24 @@ def test_translate_request_keeps_description_property_schema():
     assert isinstance(prop, dict)
     assert prop["type"] == "string"
     assert prop["description"] == "What this command does"
+
+
+def test_build_payload_maps_developer_role_to_system():
+    """回归：Codex 以 developer 角色发送系统指令时，应映射为 system 再转发上游，
+    否则 DeepSeek/智谱等只认 Chat Completions 的服务商会报 role 不合法。"""
+    body = {
+        "model": "test-model",
+        "instructions": "top-level instructions",
+        "input": [
+            {"type": "message", "role": "developer", "content": "codex dev instruction"},
+            {"type": "message", "role": "user", "content": "hi"},
+        ],
+    }
+    out = build_payload(body)
+    roles = [m["role"] for m in out["messages"]]
+    assert "developer" not in roles
+    assert roles == ["system", "system", "user"]
+    assert out["messages"][1]["content"] == "codex dev instruction"
 
 
 def test_translate_response_basic():
