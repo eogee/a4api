@@ -104,6 +104,7 @@ def build_payload(body: dict) -> dict:
     ]
     if not messages:
         messages.append({"role": "user", "content": ""})
+    messages = _sanitize_tool_messages(messages)
 
     payload: dict = {
         "model": model,
@@ -171,6 +172,52 @@ def build_payload(body: dict) -> dict:
     if payload["stream"]:
         payload["stream_options"] = {"include_usage": True}
     return payload
+
+
+def _sanitize_tool_messages(messages: list) -> list:
+    """剔除悬空的 tool_call / tool 响应，避免上游以「tool_call 无响应」拒绝。
+
+    背景：Codex 在 Windows 沙箱故障或会话被中断时，可能发来残缺对话——
+    有 function_call 但缺对应的 function_call_output，或反之有孤立结果。
+    多数 OpenAI 兼容上游强制校验「assistant 的每个 tool_call 都须有 role=tool
+    的响应」，此类残缺对话会被整轮 400 拒绝。本函数双向清理：
+      - assistant 消息中无 tool 响应的 tool_call 被移除；若全被移除则降级为纯
+        文本消息（有内容）或整条丢弃（无内容）；
+      - role=tool 但找不到来源 tool_call 的孤立响应被移除。
+    对配对完整的合法对话是无操作（no-op）。
+    """
+    # 第一遍：收集有 tool 响应的 call_id
+    responded = {
+        m.get("tool_call_id")
+        for m in messages
+        if m.get("role") == "tool" and m.get("tool_call_id")
+    }
+    out: list = []
+    for m in messages:
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            kept = [tc for tc in m["tool_calls"] if tc.get("id") in responded]
+            if not kept:
+                # 无任何响应的 tool_call：有正文降级为纯文本，无正文整条丢弃
+                if m.get("content"):
+                    out.append({"role": "assistant", "content": m["content"]})
+                continue
+            m2 = dict(m)
+            m2["tool_calls"] = kept
+            out.append(m2)
+        else:
+            out.append(m)
+    # 第二遍：去掉找不到来源 assistant tool_call 的孤立 tool 响应
+    call_ids = {
+        tc.get("id")
+        for m in out
+        if m.get("role") == "assistant" and m.get("tool_calls")
+        for tc in m["tool_calls"]
+    }
+    return [
+        m
+        for m in out
+        if not (m.get("role") == "tool" and m.get("tool_call_id") not in call_ids)
+    ]
 
 
 def _map_usage(usage: dict) -> dict:
