@@ -13,6 +13,7 @@ except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
 import tomli_w
+import yaml
 
 from .database import get_data_dir
 
@@ -20,6 +21,18 @@ CONFIG_FILENAME = "settings.json"
 CODEX_CONFIG_FILENAME = "config.toml"
 DEFAULT_BACKUP_KEEP = 5
 A4API_PROVIDER_PREFIX = "a4api_p"
+
+# dsh（DeepSeek Harness）相关常量
+DSH_HOME_ENV = "DSH_HOME"
+DSH_SETTINGS_FILENAME = "settings.yaml"
+DSH_CREDENTIALS_FILENAME = ".credentials.yaml"
+DSH_LLM_NS = "llm-deepseek"
+DSH_MODEL_NS = "agent-default-model"
+DSH_PROVIDER_ROUTE = "deepseek-official"
+DSH_API_KEY_REF = "DEEPSEEK_API_KEY"
+# dsh 适配器默认 max_tokens 为 256000，远超多数上游（如智谱）的 131072 输出上限，
+# 会把请求直接打回 INVALID_REQUEST；切换时写一个兼容的安全值兜底。
+DSH_DEFAULT_MAX_TOKENS = 131072
 
 
 def settings_path() -> Path:
@@ -36,11 +49,11 @@ def backup_dir() -> Path:
 
 
 def target_list(targets) -> list:
-    """规范化配置方案的应用目标列表（claude / codex）。"""
+    """规范化配置方案的应用目标列表（claude / codex / dsh）。"""
     result = []
     for t in (targets or "claude").split(","):
         t = (t or "").strip()
-        if t in ("claude", "codex") and t not in result:
+        if t in ("claude", "codex", "dsh") and t not in result:
             result.append(t)
     return result or ["claude"]
 
@@ -356,3 +369,161 @@ def ensure_model_in_catalog(model: str, existing: dict | None = None) -> dict:
                 pass
         raise
     return data
+
+
+# ---------------- dsh（DeepSeek Harness，~/.dsh） ----------------
+#
+# dsh 的全局用户文档是 settings.yaml（按 namespace 分段的 YAML），凭证单独存
+# 在 .credentials.yaml。llm-deepseek 插件把连接配置放在 `llm-deepseek` 段
+# （baseURL / apiKeyEnv），默认模型放在 `agent-default-model` 段
+# （provider / model）。dsh 只注册 `deepseek-official` 一个 provider 路由，
+# 原生走 OpenAI chat/completions：dsh 目标只支持 openai 类型服务商、直连上游、
+# 无需本地翻译代理；配置文件被 watcher 热加载，切换后新会话即生效、免重启。
+
+
+def dsh_home() -> Path:
+    """dsh 数据目录：优先 $DSH_HOME，否则 ~/.dsh。"""
+    override = os.environ.get(DSH_HOME_ENV)
+    return Path(override) if override else Path.home() / ".dsh"
+
+
+def dsh_settings_path() -> Path:
+    """dsh 全局设置文档路径，可用环境变量 A4API_DSH_SETTINGS_PATH 覆盖。"""
+    override = os.environ.get("A4API_DSH_SETTINGS_PATH")
+    if override:
+        return Path(override)
+    return dsh_home() / DSH_SETTINGS_FILENAME
+
+
+def dsh_credentials_path() -> Path:
+    """dsh 凭证文档路径，可用环境变量 A4API_DSH_CREDENTIALS_PATH 覆盖。"""
+    override = os.environ.get("A4API_DSH_CREDENTIALS_PATH")
+    if override:
+        return Path(override)
+    return dsh_home() / DSH_CREDENTIALS_FILENAME
+
+
+def _read_yaml(path: Path) -> dict:
+    """读取 YAML 文档为 dict；文件不存在或损坏时返回空字典。"""
+    if not path.exists():
+        return {}
+    try:
+        value = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def read_dsh_settings() -> dict:
+    """读取 dsh settings.yaml。"""
+    return _read_yaml(dsh_settings_path())
+
+
+def read_dsh_credentials() -> dict:
+    """读取 dsh .credentials.yaml。"""
+    return _read_yaml(dsh_credentials_path())
+
+
+def _backup_yaml(path: Path, prefix: str) -> Path | None:
+    """修改前备份 YAML 文档，返回备份路径；原文件不存在时返回 None。滚动保留最近 N 份。"""
+    if not path.exists():
+        return None
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dest = backup_dir() / f"{prefix}.{ts}.yaml.bak"
+    shutil.copy2(path, dest)
+    backups = sorted(backup_dir().glob(f"{prefix}.*.yaml.bak"))
+    for old in backups[:-DEFAULT_BACKUP_KEEP]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    return dest
+
+
+def backup_dsh_settings() -> Path | None:
+    """修改前备份 settings.yaml，返回备份文件路径。"""
+    return _backup_yaml(dsh_settings_path(), "dsh.settings")
+
+
+def backup_dsh_credentials() -> Path | None:
+    """修改前备份 .credentials.yaml，返回备份文件路径。"""
+    return _backup_yaml(dsh_credentials_path(), "dsh.credentials")
+
+
+def build_dsh_settings(
+    existing: dict | None, provider, model: str, max_tokens: int | None = None
+) -> dict:
+    """基于现有 settings.yaml 生成切换后的内容（合并式，保留 ui-onboarding 等其它段）。
+
+    dsh 只注册 `deepseek-official` 一个 provider 路由，原生走 OpenAI
+    chat/completions：baseURL 直接指向服务商（openai 类型，直连、免代理），
+    apiKeyEnv 固定为 DEEPSEEK_API_KEY 并显式写入，key 本体由
+    build_dsh_credentials() 落到 .credentials.yaml。
+
+    max_tokens：a4api 里为该配置显式填写的单次输出上限，优先于一切既有值；
+    留空（None）时保留用户已手动设置的 maxTokens，都没有则用安全默认。
+    """
+    data = dict(existing or {})
+    llm = dict(data.get(DSH_LLM_NS) or {})
+    llm["baseURL"] = str(provider.api_base).rstrip("/")
+    llm["apiKeyEnv"] = DSH_API_KEY_REF
+    # 输出上限：显式填写 > 既有手动值 > 安全默认。
+    # dsh 适配器默认 256000 会超出多数上游（如智谱）131072 的上限而被打回
+    # INVALID_REQUEST，故没有显式值时绝不能放行 dsh 的默认值。
+    if max_tokens is not None:
+        llm["maxTokens"] = max_tokens
+    else:
+        llm["maxTokens"] = llm.get("maxTokens") or DSH_DEFAULT_MAX_TOKENS
+    data[DSH_LLM_NS] = llm
+
+    model_ns = dict(data.get(DSH_MODEL_NS) or {})
+    model_ns["provider"] = DSH_PROVIDER_ROUTE
+    model_ns["model"] = model
+    data[DSH_MODEL_NS] = model_ns
+    return data
+
+
+def build_dsh_credentials(existing: dict | None, api_key: str) -> dict:
+    """在 .credentials.yaml 中写入 DEEPSEEK_API_KEY，保留其它凭证键。"""
+    creds = dict(existing or {})
+    creds[DSH_API_KEY_REF] = api_key
+    return creds
+
+
+def _atomic_write_yaml(path: Path, data: dict) -> None:
+    """原子写入 YAML：先写临时文件再替换，避免写入中断损坏配置。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".dsh.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            yaml.safe_dump(
+                data, f, allow_unicode=True, sort_keys=False, default_flow_style=False
+            )
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        raise
+
+
+def atomic_write_dsh_settings(data: dict) -> None:
+    """原子写入 dsh settings.yaml。"""
+    _atomic_write_yaml(dsh_settings_path(), data)
+
+
+def atomic_write_dsh_credentials(data: dict) -> None:
+    """原子写入 dsh .credentials.yaml。"""
+    _atomic_write_yaml(dsh_credentials_path(), data)
+
+
+def read_dsh_selection() -> tuple[str | None, str | None]:
+    """读取 dsh 当前生效的默认模型与 provider（agent-default-model 段）。"""
+    section = read_dsh_settings().get(DSH_MODEL_NS)
+    if not isinstance(section, dict):
+        return None, None
+    return section.get("model"), section.get("provider")

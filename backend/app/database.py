@@ -97,6 +97,13 @@ def ensure_schema() -> None:
                     "ADD COLUMN targets VARCHAR(50) NOT NULL DEFAULT 'claude'"
                 )
             )
+        if "max_tokens" not in cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE configurations "
+                    "ADD COLUMN max_tokens INTEGER"
+                )
+            )
         pcols = {row[1] for row in conn.execute(text("PRAGMA table_info(providers)"))}
         if "native_responses" not in pcols:
             conn.execute(

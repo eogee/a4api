@@ -65,7 +65,8 @@ def create_config(db: Session, data: dict) -> models.Configuration:
 
 def update_config(db: Session, config: models.Configuration, data: dict) -> models.Configuration:
     for k, v in data.items():
-        if v is not None:
+        # max_tokens 允许显式置空（回到自动兜底）；其余字段跳过 None 以保护非空列
+        if v is not None or k == "max_tokens":
             setattr(config, k, v)
     db.commit()
     db.refresh(config)

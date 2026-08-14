@@ -44,12 +44,18 @@ layui.use(['layer', 'form', 'element'], function () {
     if (document.querySelector('form[lay-filter="config-form"] [name="target_codex"]').checked) {
       targets.push('codex');
     }
+    if (document.querySelector('form[lay-filter="config-form"] [name="target_dsh"]').checked) {
+      targets.push('dsh');
+    }
+    var mtEl = document.querySelector('form[lay-filter="config-form"] [name="max_tokens"]');
+    var mtVal = mtEl && mtEl.value !== undefined ? String(mtEl.value).trim() : '';
     return {
       name: val('name'),
       provider_id: val('provider_id'),
       api_key: val('api_key'),
       model: val('model'),
-      targets: targets.join(',')
+      targets: targets.join(','),
+      max_tokens: mtVal === '' ? null : Number(mtVal)
     };
   }
 
@@ -68,6 +74,11 @@ layui.use(['layer', 'form', 'element'], function () {
           text += s.current_codex_model
             ? ' · Codex: ' + s.current_codex_model
             : ' · Codex 待配置';
+        }
+        if ((c.targets || '').indexOf('dsh') !== -1) {
+          text += s.current_dsh_model
+            ? ' · dsh: ' + s.current_dsh_model
+            : ' · dsh 待配置';
         }
         el.textContent = text;
         el.classList.add('status-active');
@@ -275,6 +286,7 @@ layui.use(['layer', 'form', 'element'], function () {
     var html = '';
     list.forEach(function (t) {
       if (t === 'codex') html += '<span class="target-badge target-codex">Codex</span>';
+      else if (t === 'dsh') html += '<span class="target-badge target-dsh">dsh</span>';
       else if (t === 'claude') html += '<span class="target-badge target-claude">Claude</span>';
     });
     return html;
@@ -315,6 +327,7 @@ layui.use(['layer', 'form', 'element'], function () {
   function confirmSwitch(id, name, targets) {
     var hasClaude = (targets || '').indexOf('claude') !== -1;
     var hasCodex = (targets || '').indexOf('codex') !== -1;
+    var hasDsh = (targets || '').indexOf('dsh') !== -1;
     var restartHtml = hasClaude
       ? '<div class="layui-form" style="margin-top:16px;">' +
           '<input type="checkbox" id="chk-restart" lay-skin="primary" title="切换后重启 Claude Code（若正在运行）">' +
@@ -323,13 +336,16 @@ layui.use(['layer', 'form', 'element'], function () {
     var codexNote = hasCodex
       ? '<p style="font-size:12px;color:#8a8e94;margin-top:10px;">Codex 配置写入后需重启 Codex 才生效</p>'
       : '';
+    var dshNote = hasDsh
+      ? '<p style="font-size:12px;color:#8a8e94;margin-top:10px;">dsh 配置热加载，新会话即生效</p>'
+      : '';
     layer.open({
       type: 1,
       title: '确认切换',
       area: ['420px', 'auto'],
       content: '<div style="padding:20px 24px;">' +
         '<p style="font-size:15px;">确定切换到「' + escapeHtml(name) + '」？</p>' +
-        restartHtml + codexNote + '</div>',
+        restartHtml + codexNote + dshNote + '</div>',
       btn: ['确认切换', '取消'],
       success: function () {
         if (hasClaude) form.render('checkbox');
@@ -392,12 +408,17 @@ layui.use(['layer', 'form', 'element'], function () {
             '<div class="layui-input-block"><input type="text" name="model" class="layui-input" placeholder="如：glm-4.7-flash"></div>' +
           '</div>' +
           '<div class="layui-form-item">' +
+            '<label class="layui-form-label">输出上限</label>' +
+            '<div class="layui-input-block"><input type="number" name="max_tokens" class="layui-input" min="1" step="1" placeholder="留空自动兜底（131072）；dsh 目标生效"></div>' +
+          '</div>' +
+          '<div class="layui-form-item">' +
             '<label class="layui-form-label">应用目标</label>' +
             '<div class="layui-input-block target-checkboxes">' +
               '<input type="checkbox" name="target_claude" title="Claude Code" lay-skin="primary" checked>' +
               '<input type="checkbox" name="target_codex" title="Codex" lay-skin="primary">' +
+              '<input type="checkbox" name="target_dsh" title="dsh" lay-skin="primary">' +
             '</div>' +
-            '<div class="layui-form-mid layui-word-aux" style="margin-left:110px;">Codex 需使用 OpenAI 兼容（Responses）接口</div>' +
+            '<div class="layui-form-mid layui-word-aux" style="margin-left:110px;">Codex / dsh 需使用 OpenAI 兼容接口</div>' +
           '</div>' +
         '</form>';
 
@@ -422,9 +443,13 @@ layui.use(['layer', 'form', 'element'], function () {
           document.querySelector('input[name="name"]').value = c.name;
           document.querySelector('select[name="provider_id"]').value = String(c.provider_id);
           document.querySelector('input[name="model"]').value = c.model;
+          if (c.max_tokens) {
+            document.querySelector('input[name="max_tokens"]').value = c.max_tokens;
+          }
           var targets = (c.targets || 'claude').split(',');
           document.querySelector('input[name="target_claude"]').checked = targets.indexOf('claude') !== -1;
           document.querySelector('input[name="target_codex"]').checked = targets.indexOf('codex') !== -1;
+          document.querySelector('input[name="target_dsh"]').checked = targets.indexOf('dsh') !== -1;
         }
         form.render(null, 'config-form');
         var link = document.getElementById('link-add-provider');
@@ -449,13 +474,18 @@ layui.use(['layer', 'form', 'element'], function () {
           return;
         }
         if (!data.targets) {
-          layer.msg('请至少选择一个应用目标（Claude Code / Codex）', { icon: 2 });
+          layer.msg('请至少选择一个应用目标（Claude Code / Codex / dsh）', { icon: 2 });
           return;
         }
-        // Codex 需使用 OpenAI 兼容（Responses）接口：保存前拦截 Anthropic 服务商 + 勾选 Codex
+        if (data.max_tokens != null && (!Number.isInteger(data.max_tokens) || data.max_tokens < 1)) {
+          layer.msg('最大输出上限需为正整数', { icon: 2 });
+          return;
+        }
+        // Codex / dsh 需使用 OpenAI 兼容接口：保存前拦截 Anthropic 服务商 + 勾选相应目标
         var selProvider = providers.find(function (p) { return p.id === Number(data.provider_id); });
-        if (data.targets.indexOf('codex') !== -1 && selProvider && selProvider.api_type !== 'openai') {
-          layer.msg('Codex 需使用 OpenAI 兼容（Responses）接口，请更换服务商或去掉 Codex 目标', { icon: 2 });
+        var needOpenai = data.targets.indexOf('codex') !== -1 || data.targets.indexOf('dsh') !== -1;
+        if (needOpenai && selProvider && selProvider.api_type !== 'openai') {
+          layer.msg('Codex / dsh 需使用 OpenAI 兼容接口，请更换服务商或去掉对应目标', { icon: 2 });
           return;
         }
         var body = {
@@ -465,6 +495,7 @@ layui.use(['layer', 'form', 'element'], function () {
           targets: data.targets
         };
         if (data.api_key) body.api_key = data.api_key;
+        body.max_tokens = data.max_tokens;  // 显式置空=清除，回到自动兜底
 
         var req = isEdit
           ? apiSend('/configs/' + c.id, 'PUT', body)

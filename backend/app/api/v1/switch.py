@@ -19,6 +19,7 @@ def get_status(db: Session = Depends(get_db)):
     active = crud.get_active_config(db)
     current = config_manager.read_settings()
     codex = config_manager.read_codex_settings()
+    dsh_model, dsh_provider = config_manager.read_dsh_selection()
     return schemas.StatusOut(
         active_config=active,
         settings_file_exists=config_manager.settings_path().exists(),
@@ -26,6 +27,9 @@ def get_status(db: Session = Depends(get_db)):
         codex_file_exists=config_manager.codex_settings_path().exists(),
         current_codex_model=codex.get("model"),
         current_codex_provider=codex.get("model_provider"),
+        dsh_file_exists=config_manager.dsh_settings_path().exists(),
+        current_dsh_model=dsh_model,
+        current_dsh_provider=dsh_provider,
     )
 
 
@@ -54,16 +58,22 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
 
     backup_path = None
     codex_backup_path = None
+    dsh_backup_path = None
     try:
         api_key = decrypt_text(config.api_key_encrypted)
         if not api_key:
             raise ValueError("API Key 解密失败")
         targets = config_manager.target_list(config.targets)
-        # 目标含 Codex 但服务商非 OpenAI 兼容时，在标记生效 / 写任何文件之前干净失败，
+        # 目标含 Codex / dsh 但服务商非 OpenAI 兼容时，在标记生效 / 写任何文件之前干净失败，
         # 避免出现“Claude 配置已写入但整体报错”的半生效状态
-        if "codex" in targets and config.provider.api_type != "openai":
+        if ("codex" in targets or "dsh" in targets) and config.provider.api_type != "openai":
+            need = "、".join(
+                name
+                for name, key in (("Codex", "codex"), ("dsh", "dsh"))
+                if key in targets
+            )
             raise ValueError(
-                f"Codex 需要 OpenAI 兼容（Responses）接口，"
+                f"{need} 需要 OpenAI 兼容接口，"
                 f"请为「{config.name}」选择 OpenAI 兼容的服务商"
             )
         proxy: dict | None = None
@@ -97,10 +107,26 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
             )
             config_manager.atomic_write_codex_settings(codex_settings)
             config_manager.ensure_model_in_catalog(config.model, existing)
-        crud.add_log(
-            db, config_id, "success",
-            "切换成功" + ("，Codex 配置已写入" if "codex" in targets else ""),
-        )
+        if "dsh" in targets:
+            # dsh 原生走 OpenAI chat/completions，openai 类型服务商直连上游、无需本地代理；
+            # 配置与凭证均被 watcher 热加载，切换后新会话即生效、免重启。
+            dsh_backup_path = config_manager.backup_dsh_settings()
+            config_manager.backup_dsh_credentials()
+            dsh_existing = config_manager.read_dsh_settings()
+            dsh_settings = config_manager.build_dsh_settings(
+                dsh_existing, config.provider, config.model, config.max_tokens
+            )
+            config_manager.atomic_write_dsh_settings(dsh_settings)
+            creds = config_manager.build_dsh_credentials(
+                config_manager.read_dsh_credentials(), api_key
+            )
+            config_manager.atomic_write_dsh_credentials(creds)
+        detail = "切换成功"
+        if "codex" in targets:
+            detail += "，Codex 配置已写入"
+        if "dsh" in targets:
+            detail += "，dsh 配置已写入"
+        crud.add_log(db, config_id, "success", detail)
     except Exception as e:
         logger.exception("切换配置「%s」失败", config.name)
         crud.add_log(db, config_id, "failed", str(e))
@@ -117,11 +143,14 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
     message = "切换成功"
     if "codex" in targets:
         message += "；Codex 配置已写入（" + ("原生直连" if config.provider.native_responses else "经本地代理") + "），重启 Codex 后生效"
+    if "dsh" in targets:
+        message += "；dsh 配置已写入（直连上游，热加载生效）"
     return schemas.SwitchResult(
         success=True,
         message=message,
         backup_path=str(backup_path) if backup_path else None,
         codex_backup_path=str(codex_backup_path) if codex_backup_path else None,
+        dsh_backup_path=str(dsh_backup_path) if dsh_backup_path else None,
         restart=restarted,
         process_info=process_info,
     )

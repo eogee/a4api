@@ -27,7 +27,8 @@ class Configuration(Base):
     provider_id = Column(Integer, ForeignKey("providers.id"), nullable=False)
     api_key_encrypted = Column(Text, nullable=False)  # DPAPI 加密后的 base64
     model = Column(String(100), nullable=False)
-    targets = Column(String(50), nullable=False, default="claude")  # claude / codex / claude,codex
+    targets = Column(String(50), nullable=False, default="claude")  # claude / codex / dsh，逗号分隔可多选
+    max_tokens = Column(Integer, nullable=True)  # dsh 单次输出上限；None 时用兜底值（131072）
     is_active = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now)
 

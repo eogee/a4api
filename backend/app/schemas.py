@@ -37,7 +37,8 @@ class ConfigBase(BaseModel):
     provider_id: int
     api_key: str = Field(..., description="明文 Key，后端加密存储")
     model: str
-    targets: str = "claude"  # claude / codex / claude,codex
+    targets: str = "claude"  # claude / codex / dsh，逗号分隔可多选
+    max_tokens: Optional[int] = Field(default=None, ge=1, description="dsh 单次输出上限；不填用兜底值")
 
 
 class ConfigCreate(ConfigBase):
@@ -50,6 +51,7 @@ class ConfigUpdate(BaseModel):
     api_key: Optional[str] = None
     model: Optional[str] = None
     targets: Optional[str] = None
+    max_tokens: Optional[int] = Field(default=None, ge=1)
 
 
 class ConfigOut(BaseModel):
@@ -58,6 +60,7 @@ class ConfigOut(BaseModel):
     provider_id: int
     model: str
     targets: str = "claude"
+    max_tokens: Optional[int] = None
     is_active: bool
     created_at: datetime
     provider: Optional[ProviderOut] = None
@@ -74,6 +77,7 @@ class SwitchResult(BaseModel):
     message: str
     backup_path: Optional[str] = None
     codex_backup_path: Optional[str] = None
+    dsh_backup_path: Optional[str] = None
     restart: bool = False
     process_info: Optional[dict] = None
 
@@ -85,3 +89,6 @@ class StatusOut(BaseModel):
     codex_file_exists: bool = False
     current_codex_model: Optional[str] = None
     current_codex_provider: Optional[str] = None
+    dsh_file_exists: bool = False
+    current_dsh_model: Optional[str] = None
+    current_dsh_provider: Optional[str] = None

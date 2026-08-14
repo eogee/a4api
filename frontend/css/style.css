@@ -247,6 +247,11 @@ body {
 }
 
 .target-codex {
+  background: #ececec;
+  color: #3a3a3a;
+}
+
+.target-dsh {
   background: #e9f0fb;
   color: #2f6fb4;
 }
