@@ -247,13 +247,13 @@ body {
 }
 
 .target-codex {
-  background: #ececec;
-  color: #3a3a3a;
+  background: #e9f0fb;
+  color: #2f6fb4;
 }
 
 .target-dsh {
-  background: #e9f0fb;
-  color: #2f6fb4;
+  background: #ececec;
+  color: #3a3a3a;
 }
 
 .card-actions {
