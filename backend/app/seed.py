@@ -39,6 +39,13 @@ TEMPLATES = [
         "is_custom": False,
     },
     {
+        "name": "OpenCodeGo-openai",
+        "api_base": "https://opencode.ai/zen/go/v1",
+        "api_type": "openai",
+        "native_responses": False,
+        "is_custom": False,
+    },
+    {
         "name": "本地llmstudio-openai",
         "api_base": "http://127.0.0.1:1234/v1",
         "api_type": "openai",

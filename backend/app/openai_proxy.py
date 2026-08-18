@@ -555,6 +555,25 @@ def _iter_openai_chunks(resp):
             continue
 
 
+def _normalize_tool_call_nulls(chunk: dict) -> None:
+    """把流式分片里 tool_calls 的 null 字段归一为「省略键」。
+
+    opencode zen 等上游把后续 tool_call 分片的 id/name 置为 null（而非省略），
+    dsh-llm-deepseek 适配器用 `x !== void 0` 判断（lib/index.js:321-322），
+    null 会通过检查并把已解析出的工具名/ID 覆盖为空，导致 harness 报
+    `unknown tool ""`。这里把 null 键删除，等价于上游省略该字段，
+    客户端（含 dsh、a4api 自身）将保留首个分片解析出的 id/name。
+    """
+    for choice in chunk.get("choices") or []:
+        delta = choice.get("delta") or {}
+        for tc in delta.get("tool_calls") or []:
+            if tc.get("id") is None:
+                tc.pop("id", None)
+            fn = tc.get("function")
+            if isinstance(fn, dict) and fn.get("name") is None:
+                fn.pop("name", None)
+
+
 def _iter_openai_chunks_from_lines(lines):
     for line in lines:
         line = line.strip()
@@ -795,7 +814,7 @@ async def _proxy_refresh():
         c = db.query(Configuration).filter(Configuration.is_active.is_(True)).first()
         if c is None or c.provider is None or c.provider.api_type != "openai":
             return JSONResponse(_error_body("no active openai provider"), status_code=409)
-        if not (set(target_list(c.targets)) & {"claude", "codex"}):
+        if not (set(target_list(c.targets)) & {"claude", "codex", "dsh"}):
             return JSONResponse(_error_body("active config does not need proxy"), status_code=409)
         key = decrypt_text(str(c.api_key_encrypted))
         if not key:
@@ -804,6 +823,95 @@ async def _proxy_refresh():
         return {"ok": True, "upstream_base": c.provider.api_base, "model": c.model}
     finally:
         db.close()
+
+
+@proxy_app.api_route("/chat/completions", methods=["POST"])
+@proxy_app.api_route("/v1/chat/completions", methods=["POST"])
+async def chat_completions(request: Request):
+    """OpenAI chat/completions 透明透传入口（供 dsh 等原生 OpenAI 客户端走本地代理）。
+
+    与 /v1/messages、/responses 不同，这里不做协议翻译，直接把请求转发给上游；
+    仅对**流式响应**中 tool_calls 分片的 null 字段做归一（见
+    _normalize_tool_call_nulls），让 dsh-llm-deepseek 等对 null 敏感的客户端
+    能正确保留工具名/ID，其余字段原样透传。非流式响应原样透传。
+    """
+    token = request.headers.get("x-api-key")
+    if not token:
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            token = auth[7:].strip()
+    if not _state["token"] or token != _state["token"]:
+        return JSONResponse(
+            _error_body("invalid bearer token", "authentication_error"),
+            status_code=401,
+        )
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(_error_body("invalid JSON body", "invalid_request_error"), status_code=400)
+    if _DEBUG_LOG:
+        try:
+            with open(_DEBUG_LOG + ".chat.json", "w", encoding="utf-8") as f:
+                f.write(json.dumps(body, ensure_ascii=False))
+        except OSError:
+            pass
+
+    with _state["lock"]:
+        upstream_base, upstream_key = _state["upstream_base"], _state["upstream_key"]
+    if not upstream_base or not upstream_key:
+        return JSONResponse(_error_body("proxy is not configured"), status_code=503)
+
+    try:
+        conn, resp = await asyncio.to_thread(
+            _open_upstream, body, upstream_base, upstream_key
+        )
+    except Exception as e:
+        return JSONResponse(_error_body(str(e)), status_code=502)
+
+    if resp.status != 200:
+        detail = resp.read().decode("utf-8", "replace")
+        conn.close()
+        if _DEBUG_LOG:
+            _debug_log(body, resp.status, detail.encode("utf-8"))
+        return JSONResponse(
+            _error_body(f"upstream HTTP {resp.status}: {detail[:500]}"),
+            status_code=_upstream_status(resp.status),
+            headers=_retry_after_headers(resp),
+        )
+
+    if body.get("stream"):
+        def gen():
+            try:
+                if _DEBUG_LOG:
+                    raw_body = resp.read()
+                    _debug_log(body, resp.status, raw_body)
+                    chunks = _iter_openai_chunks_from_lines(
+                        raw_body.decode("utf-8", "replace").splitlines()
+                    )
+                else:
+                    chunks = _iter_openai_chunks(resp)
+                for chunk in chunks:
+                    _normalize_tool_call_nulls(chunk)
+                    yield "data: " + json.dumps(chunk, ensure_ascii=False) + "\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as e:
+                yield _sse("error", _error_body(str(e)))
+            finally:
+                conn.close()
+
+        return StreamingResponse(gen(), media_type="text/event-stream")
+
+    try:
+        data = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception as e:
+        conn.close()
+        return JSONResponse(_error_body(str(e)), status_code=502)
+    finally:
+        conn.close()
+    if _DEBUG_LOG:
+        _debug_log(body, resp.status, json.dumps(data, ensure_ascii=False).encode("utf-8"))
+    return JSONResponse(data)
 
 
 @proxy_app.post("/responses")

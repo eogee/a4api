@@ -2,6 +2,7 @@
 import json
 
 import pytest
+import yaml
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -158,4 +159,34 @@ def test_claude_switch_preserves_existing_hooks(tmp_path, monkeypatch):
     assert settings["env"]["CUSTOM_VAR"] == "keep"
     assert settings["env"]["ANTHROPIC_AUTH_TOKEN"] == _PROXY["token"]
     assert settings["env"]["ANTHROPIC_BASE_URL"] == _PROXY["base_url"]
+    db.close()
+
+
+def test_dsh_target_writes_proxy_base_url_and_token(tmp_path, monkeypatch):
+    """回归：dsh 目标经本地翻译代理透传（baseURL 指向代理、凭证写代理 token），
+    而非直连上游——规避上游流式分片 null 字段导致 dsh 工具名被覆盖。"""
+    _isolate_paths(tmp_path, monkeypatch)
+    monkeypatch.setenv("A4API_DSH_SETTINGS_PATH", str(tmp_path / "settings.yaml"))
+    monkeypatch.setenv("A4API_DSH_CREDENTIALS_PATH", str(tmp_path / "credentials.yaml"))
+    monkeypatch.setattr(
+        switch.proxy_standalone, "ensure_proxy_running", lambda: dict(_PROXY)
+    )
+    monkeypatch.setattr(switch, "is_claude_running", lambda: True)
+
+    Session = _make_session(tmp_path)
+    db = Session()
+    cfg = _seed(db, api_type="openai", targets="dsh")
+
+    result = switch.switch_config(cfg.id, schemas.SwitchRequest(restart=False), db)
+    assert result.success is True
+    assert crud.get_active_config(db) is not None
+
+    dsh = yaml.safe_load((tmp_path / "settings.yaml").read_text(encoding="utf-8"))
+    assert dsh["llm-deepseek"]["baseURL"] == _PROXY["base_url"]
+    assert dsh["llm-deepseek"]["apiKeyEnv"] == "DEEPSEEK_API_KEY"
+    assert dsh["agent-default-model"]["provider"] == "deepseek-official"
+    assert dsh["agent-default-model"]["model"] == "test-model"
+
+    creds = yaml.safe_load((tmp_path / "credentials.yaml").read_text(encoding="utf-8"))
+    assert creds["DEEPSEEK_API_KEY"] == _PROXY["token"]
     db.close()

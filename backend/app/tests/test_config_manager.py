@@ -135,6 +135,32 @@ def test_build_dsh_credentials_preserves_other_keys():
     assert out == {"OTHER_SECRET": "keep", "DEEPSEEK_API_KEY": "sk-123"}
 
 
+def test_build_dsh_settings_uses_proxy_base_url():
+    """回归：dsh 经本地翻译代理连接上游时，baseURL 应指向代理透传端点。"""
+    existing = {"ui-onboarding": {"welcomeNoticeVersion": "2026-08-13.1"}}
+    proxy = {"base_url": "http://127.0.0.1:17890", "token": "proxy-token", "port": 17890}
+    out = config_manager.build_dsh_settings(
+        existing, _provider("openai", "https://api.example.com/v1/"), "deepseek-v4-flash",
+        proxy=proxy,
+    )
+    assert out["ui-onboarding"] == existing["ui-onboarding"]
+    assert out["llm-deepseek"]["baseURL"] == "http://127.0.0.1:17890"
+    assert out["llm-deepseek"]["apiKeyEnv"] == "DEEPSEEK_API_KEY"
+    assert out["llm-deepseek"]["maxTokens"] == 131072
+    assert out["agent-default-model"] == {
+        "provider": "deepseek-official",
+        "model": "deepseek-v4-flash",
+    }
+
+
+def test_build_dsh_credentials_prefers_proxy_token():
+    """回归：dsh 走代理时凭证里应写代理 token 而非真实上游 key。"""
+    out = config_manager.build_dsh_credentials(
+        {"OTHER_SECRET": "keep"}, "sk-real-key", proxy_token="proxy-token"
+    )
+    assert out == {"OTHER_SECRET": "keep", "DEEPSEEK_API_KEY": "proxy-token"}
+
+
 def test_atomic_write_dsh_settings(tmp_path, monkeypatch):
     target = tmp_path / "settings.yaml"
     monkeypatch.setenv("A4API_DSH_SETTINGS_PATH", str(target))

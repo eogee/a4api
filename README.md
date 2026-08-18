@@ -2,7 +2,7 @@
 
 一个开箱即用的 **Agent LLM 服务商切换工具**，通过可视化界面读写 `~/.claude/settings.json`、`~/.codex/config.toml` 与 `~/.dsh/settings.yaml`，让 **Claude Code、Codex 与 dsh（DeepSeek Harness）** 在不同服务商、模型、API Key 之间**一键切换**，无需手动编辑配置文件。
 
-Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Responses 接口，对国内用户常用的 OpenAI 兼容服务商（DeepSeek、智谱等）以及 OpenRouter 这类聚合网关支持有限。a4api 通过内置的**本地翻译代理**：把 Anthropic 请求实时翻译成 OpenAI Chat Completions 格式转发给上游，让 Claude Code 也能流畅使用任意 OpenAI 兼容 API；对原生支持 Responses 的服务商（如 DeepSeek）让 Codex **直连上游**，对仅提供 Chat Completions 的服务商（如智谱）则由代理把 Responses 翻译转发。一套配置即可同时覆盖 Claude Code 与 Codex。此外支持 **dsh（DeepSeek Harness）**：dsh 原生走 OpenAI Chat Completions 接口，OpenAI 兼容服务商可**直连**写入 `~/.dsh/settings.yaml` 与 `~/.dsh/.credentials.yaml`，配置热加载、切换后新会话即生效。
+Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Responses 接口，对国内用户常用的 OpenAI 兼容服务商（DeepSeek、智谱等）以及 OpenRouter 这类聚合网关支持有限。a4api 通过内置的**本地翻译代理**：把 Anthropic 请求实时翻译成 OpenAI Chat Completions 格式转发给上游，让 Claude Code 也能流畅使用任意 OpenAI 兼容 API；对原生支持 Responses 的服务商（如 DeepSeek）让 Codex **直连上游**，对仅提供 Chat Completions 的服务商（如智谱）则由代理把 Responses 翻译转发。一套配置即可同时覆盖 Claude Code 与 Codex。此外支持 **dsh（DeepSeek Harness）**：dsh 原生走 OpenAI Chat Completions 接口，经本地翻译代理的 `/chat/completions` 透传端点写入 `~/.dsh/settings.yaml` 与 `~/.dsh/.credentials.yaml`，配置热加载、切换后新会话即生效。代理透传时会把上游流式分片里 tool_calls 的 null 字段归一为省略键，规避部分上游（如 opencode zen）以 `null` 填充后续分片导致 dsh 适配器把工具名覆盖为空（`unknown tool ""`）的问题。
 
 核心特性：配置方案卡片化管理、切换前自动备份、API Key 采用 Windows DPAPI 加密存储、本地代理仅监听本机并以随机 token 鉴权。无论你是想快速体验各家模型，还是想统一管理团队的 API 配置，都能通过几个点击完成。
 
@@ -56,10 +56,10 @@ Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Respons
 
 ## 功能
 
-- 预置 6 个常用服务商模板（DeepSeek、智谱、OpenRouter、本地推理等），一键生成配置方案
+- 预置 7 个常用服务商模板（DeepSeek、智谱、OpenRouter、OpenCodeGo、本地推理等），一键生成配置方案
 - 选择服务商时支持按名称关键字实时搜索（如输入 `openrouter`、`deep` 即可快速定位）
 - 支持 Anthropic 协议与 OpenAI 兼容 API（切换时自动启动本地翻译代理进程，关闭工具后仍可继续使用）
-- 每个配置方案可选应用目标：Claude Code、Codex、dsh 或任意组合（Codex 使用 OpenAI Responses 接口写入 `~/.codex/config.toml`；dsh 使用 OpenAI Chat Completions 接口写入 `~/.dsh/settings.yaml` 与 `~/.dsh/.credentials.yaml`；原生支持 Responses 的上游如 DeepSeek 让 Codex 直连，其余经本地翻译代理）
+- 每个配置方案可选应用目标：Claude Code、Codex、dsh 或任意组合（Codex 使用 OpenAI Responses 接口写入 `~/.codex/config.toml`；dsh 使用 OpenAI Chat Completions 接口写入 `~/.dsh/settings.yaml` 与 `~/.dsh/.credentials.yaml`；原生支持 Responses 的上游如 DeepSeek 让 Codex 直连，其余经本地翻译代理；dsh 始终经本地翻译代理透传）
 - 配置方案卡片化管理：新增、编辑、删除、一键切换
 - 当前生效配置醒目高亮
 - 切换前自动备份原配置（滚动保留最近 5 份），原子写入防损坏
@@ -79,6 +79,7 @@ Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Respons
 | DeepSeek-openai | `https://api.deepseek.com/` | OpenAI | ✅ 直连 |
 | 智谱-openai | `https://open.bigmodel.cn/api/paas/v4` | OpenAI | — |
 | OpenRouter-openai | `https://openrouter.ai/api/v1` | OpenAI | — |
+| OpenCodeGo-openai | `https://opencode.ai/zen/go/v1` | OpenAI | — |
 | 本地llmstudio-openai | `http://127.0.0.1:1234/v1` | OpenAI | — |
 
 > 模板命名遵循「服务商-协议」约定：同一服务商可能同时提供 Anthropic 与 OpenAI 兼容两套接口，因此预置两条记录（如 `DeepSeek-anthropic` / `DeepSeek-openai`）。OpenRouter 为 OpenAI 兼容聚合网关，配置方案中填入其 API Key 即可路由到 OpenRouter 上架的各家模型。
@@ -119,7 +120,8 @@ Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Respons
 
 - **仅绑定 `127.0.0.1`**，不对外网开放；端口限定在 `17890–17899` 的固定小范围。
 - 每次启动由 `secrets.token_urlsafe(24)` 生成**随机鉴权 token**，请求必须携带 `x-api-key` 或 `Authorization: Bearer <token>` 且与 token 一致，否则返回 `401`。
-- 代理只在配置为「OpenAI 兼容 + 目标含 Claude/Codex」时才运行，从数据库中按当前生效配置解密密钥来更新上游，**不硬编码任何密钥**；当生效配置不再需要代理时自动退出。
+- 代理只在配置为「OpenAI 兼容 + 目标含 Claude/Codex/dsh」时才运行，从数据库中按当前生效配置解密密钥来更新上游，**不硬编码任何密钥**；当生效配置不再需要代理时自动退出。
+- 代理提供 `/chat/completions` 透传端点（供 dsh 原生 OpenAI 客户端），并把上游流式分片里 tool_calls 的 null 字段归一为省略键，规避 `dsh-llm-deepseek` 等对 null 敏感的适配器把工具名/ID 覆盖为空（修复部分上游工具调用失效）。
 - 复用已运行代理前会校验其能力版本（`/v1/api/version`，要求 ≥ 2 且支持 `openai_responses`），避免误用旧构建的未鉴权进程；端口状态文件过期时按端口反查占用进程并清理。
 
 ### 3. 配置写入与备份

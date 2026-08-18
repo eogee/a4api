@@ -30,8 +30,10 @@ def _active_openai_config():
         if c is None or c.provider is None or c.provider.api_type != "openai":
             return None
         targets = set(target_list(c.targets))
-        if not (targets & {"claude", "codex"}):
-            return None  # 代理同时服务 Claude（messages 翻译）与 Codex（responses 翻译）
+        # 代理服务 Claude（messages 翻译）、Codex（responses 翻译）与
+        # dsh（/chat/completions 透传，归一上游 tool_calls 的 null 字段）
+        if not (targets & {"claude", "codex", "dsh"}):
+            return None
         # 原生支持 Responses 且仅面向 Codex 的配置可直接访问上游，无需本地代理
         if targets == {"codex"} and getattr(c.provider, "native_responses", False):
             return None

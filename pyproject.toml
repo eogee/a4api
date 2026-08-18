@@ -1,6 +1,6 @@
 [project]
 name = "a4api"
-version = "0.1.4"
+version = "0.1.5"
 description = "Claude Code LLM API 切换工具"
 readme = "README.md"
 requires-python = ">=3.10"

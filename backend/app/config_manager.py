@@ -451,21 +451,29 @@ def backup_dsh_credentials() -> Path | None:
 
 
 def build_dsh_settings(
-    existing: dict | None, provider, model: str, max_tokens: int | None = None
+    existing: dict | None, provider, model: str, max_tokens: int | None = None,
+    proxy: dict | None = None,
 ) -> dict:
     """基于现有 settings.yaml 生成切换后的内容（合并式，保留 ui-onboarding 等其它段）。
 
     dsh 只注册 `deepseek-official` 一个 provider 路由，原生走 OpenAI
-    chat/completions：baseURL 直接指向服务商（openai 类型，直连、免代理），
-    apiKeyEnv 固定为 DEEPSEEK_API_KEY 并显式写入，key 本体由
-    build_dsh_credentials() 落到 .credentials.yaml。
+    chat/completions：baseURL 指向本地翻译代理的 `/chat/completions` 透传
+    端点（代理负责归一上游 tool_calls 分片中的 null 字段，规避 dsh 适配器
+    把工具名/ID 覆盖为空的问题），apiKeyEnv 固定为 DEEPSEEK_API_KEY 并显式
+    写入，key 本体由 build_dsh_credentials() 落到 .credentials.yaml。
 
     max_tokens：a4api 里为该配置显式填写的单次输出上限，优先于一切既有值；
     留空（None）时保留用户已手动设置的 maxTokens，都没有则用安全默认。
     """
     data = dict(existing or {})
     llm = dict(data.get(DSH_LLM_NS) or {})
-    llm["baseURL"] = str(provider.api_base).rstrip("/")
+    # 经本地翻译代理透传（dsh 始终需要本地代理），代理未就绪时防御性直连。
+    proxy_base = (proxy or {}).get("base_url")
+    llm["baseURL"] = (
+        str(proxy_base).rstrip("/")
+        if proxy_base
+        else str(provider.api_base).rstrip("/")
+    )
     llm["apiKeyEnv"] = DSH_API_KEY_REF
     # 输出上限：显式填写 > 既有手动值 > 安全默认。
     # dsh 适配器默认 256000 会超出多数上游（如智谱）131072 的上限而被打回
@@ -483,10 +491,14 @@ def build_dsh_settings(
     return data
 
 
-def build_dsh_credentials(existing: dict | None, api_key: str) -> dict:
-    """在 .credentials.yaml 中写入 DEEPSEEK_API_KEY，保留其它凭证键。"""
+def build_dsh_credentials(existing: dict | None, api_key: str, proxy_token: str | None = None) -> dict:
+    """在 .credentials.yaml 中写入 DEEPSEEK_API_KEY，保留其它凭证键。
+
+    dsh 经本地翻译代理连接时，写入的应是代理鉴权 token（真实上游 key 由
+    代理持有）；proxy_token 缺省时写真实 key（防御性直连场景）。
+    """
     creds = dict(existing or {})
-    creds[DSH_API_KEY_REF] = api_key
+    creds[DSH_API_KEY_REF] = proxy_token if proxy_token else api_key
     return creds
 
 

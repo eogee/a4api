@@ -108,17 +108,23 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
             config_manager.atomic_write_codex_settings(codex_settings)
             config_manager.ensure_model_in_catalog(config.model, existing)
         if "dsh" in targets:
-            # dsh 原生走 OpenAI chat/completions，openai 类型服务商直连上游、无需本地代理；
+            # dsh 原生走 OpenAI chat/completions，但统一经本地翻译代理的
+            # /chat/completions 透传端点连接上游：代理会把上游流式分片中
+            # tool_calls 的 null 字段归一为省略键，规避 dsh-llm-deepseek
+            # 适配器把工具名/ID 覆盖为空导致 `unknown tool ""` 的问题。
             # 配置与凭证均被 watcher 热加载，切换后新会话即生效、免重启。
             dsh_backup_path = config_manager.backup_dsh_settings()
             config_manager.backup_dsh_credentials()
             dsh_existing = config_manager.read_dsh_settings()
+            dsh_proxy = proxy_standalone.ensure_proxy_running()
             dsh_settings = config_manager.build_dsh_settings(
-                dsh_existing, config.provider, config.model, config.max_tokens
+                dsh_existing, config.provider, config.model, config.max_tokens,
+                proxy=dsh_proxy,
             )
             config_manager.atomic_write_dsh_settings(dsh_settings)
             creds = config_manager.build_dsh_credentials(
-                config_manager.read_dsh_credentials(), api_key
+                config_manager.read_dsh_credentials(), api_key,
+                proxy_token=dsh_proxy.get("token"),
             )
             config_manager.atomic_write_dsh_credentials(creds)
         detail = "切换成功"
@@ -144,7 +150,7 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
     if "codex" in targets:
         message += "；Codex 配置已写入（" + ("原生直连" if config.provider.native_responses else "经本地代理") + "），重启 Codex 后生效"
     if "dsh" in targets:
-        message += "；dsh 配置已写入（直连上游，热加载生效）"
+        message += "；dsh 配置已写入（经本地代理，热加载生效）"
     return schemas.SwitchResult(
         success=True,
         message=message,

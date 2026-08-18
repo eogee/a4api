@@ -285,6 +285,35 @@ def test_retry_after_headers_passthrough():
     assert _retry_after_headers(_NoRa()) == {}
 
 
+def test_normalize_tool_call_nulls_keeps_first_chunk_fields():
+    """回归：opencode zen 等上游在后续流式分片里把 tool_calls 的 id/name 置为 null，
+    归一化后应删除这些 null 键（等价于省略），让 dsh-llm-deepseek 的
+    `!== void 0` 检查不会把首个分片解析出的工具名/ID 覆盖为空。"""
+    from backend.app.openai_proxy import _normalize_tool_call_nulls
+
+    # 首个分片：id/name 有效
+    first = {"choices": [{"delta": {"tool_calls": [
+        {"index": 0, "id": "call_1", "type": "function",
+         "function": {"name": "get_weather", "arguments": ""}}]}}]}
+    _normalize_tool_call_nulls(first)
+    assert first["choices"][0]["delta"]["tool_calls"][0]["id"] == "call_1"
+    assert first["choices"][0]["delta"]["tool_calls"][0]["function"]["name"] == "get_weather"
+
+    # 后续分片：id/name 为 null，应被删除而不是保留 null
+    later = {"choices": [{"delta": {"tool_calls": [
+        {"index": 0, "id": None, "type": "function",
+         "function": {"name": None, "arguments": "{\"city\": \"北京\"}"}}]}}]}
+    _normalize_tool_call_nulls(later)
+    tc = later["choices"][0]["delta"]["tool_calls"][0]
+    assert "id" not in tc
+    assert "name" not in tc["function"]
+    assert tc["index"] == 0
+    assert tc["function"]["arguments"] == '{"city": "北京"}'
+
+    # arguments 等其它字段不受影响
+    assert tc["function"].get("arguments") is not None
+
+
 def test_translate_response_basic():
     data = {
         "choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}],

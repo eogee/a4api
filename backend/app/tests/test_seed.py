@@ -14,7 +14,7 @@ def _make_session(tmp_path):
 
 
 def test_seed_providers_inserts_all_templates(tmp_path, monkeypatch):
-    """首次播种补齐全部 6 个预置模板。"""
+    """首次播种补齐全部 7 个预置模板。"""
     Session = _make_session(tmp_path)
     monkeypatch.setattr(seed, "SessionLocal", Session)
 
@@ -23,7 +23,7 @@ def test_seed_providers_inserts_all_templates(tmp_path, monkeypatch):
     db = Session()
     names = {p.name for p in db.query(Provider).all()}
     assert names == {t["name"] for t in seed.TEMPLATES}
-    assert len(names) == 6
+    assert len(names) == 7
     db.close()
 
 
