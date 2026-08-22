@@ -1,0 +1,771 @@
+"""Skill 管理：三端（Claude Code / Codex / dsh）skill 发现、迁移、回收站。
+
+三端均采用「<skill-name>/SKILL.md 目录 bundle + frontmatter（name/description）」
+格式，因此迁移即目录复制。本模块职责：
+
+- 路径解析：三端全局根（含 A4API_*_SKILLS_PATH 环境变量覆盖）+ 可配置项目根
+  列表下的项目级根；项目根列表持久化到 get_data_dir()/projects.json。
+- 发现：扫描各根下的 skill bundle，以 frontmatter name 为唯一标识做聚合与
+  重复标注（「已在 N 端存在」）；Codex 全局根的保留目录 .system/ 等点开头
+  目录一律跳过，不视为用户 skill。
+- 迁移：非破坏性复制（源端保留）；目标端已存在同名 skill 时先移入回收站再
+  写入，不静默覆盖；每次迁移写入 SkillMigration 日志。
+- 回收站：删除移入 get_data_dir()/skills_recycle/<name>.<ts>/，SkillTrash 表
+  记录原位信息，30 天惰性过期清理，可恢复原位。
+"""
+import json
+import logging
+import os
+import shutil
+import subprocess
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import yaml
+
+from . import config_manager
+from .database import get_data_dir
+
+logger = logging.getLogger(__name__)
+
+TOOLS = ("claude", "codex", "dsh")
+TOOL_LABELS = {"claude": "Claude", "codex": "Codex", "dsh": "dsh"}
+SKILL_FILE = "SKILL.md"
+TRASH_DIR_NAME = "skills_recycle"
+TRASH_KEEP_DAYS = 30
+PROJECTS_FILENAME = "projects.json"
+DEFAULT_PROJECT_ROOT = r"C:\ProgramMine"
+
+
+# ---------------- 路径解析 ----------------
+
+
+def claude_skills_root() -> Path:
+    """Claude Code 全局 skill 根，可用环境变量 A4API_CLAUDE_SKILLS_PATH 覆盖。"""
+    override = os.environ.get("A4API_CLAUDE_SKILLS_PATH")
+    if override:
+        return Path(override)
+    return Path.home() / ".claude" / "skills"
+
+
+def codex_skills_root() -> Path:
+    """Codex 全局 skill 根，可用环境变量 A4API_CODEX_SKILLS_PATH 覆盖。"""
+    override = os.environ.get("A4API_CODEX_SKILLS_PATH")
+    if override:
+        return Path(override)
+    return Path.home() / ".codex" / "skills"
+
+
+def dsh_skills_root() -> Path:
+    """dsh 全局 skill 根，可用环境变量 A4API_DSH_SKILLS_PATH 覆盖。"""
+    override = os.environ.get("A4API_DSH_SKILLS_PATH")
+    if override:
+        return Path(override)
+    return config_manager.dsh_home() / "skills"
+
+
+def global_skill_roots() -> dict:
+    """三端全局 skill 根映射 {tool: Path}。"""
+    return {
+        "claude": claude_skills_root(),
+        "codex": codex_skills_root(),
+        "dsh": dsh_skills_root(),
+    }
+
+
+# ---------------- 项目根列表（projects.json） ----------------
+
+
+def _projects_file() -> Path:
+    return get_data_dir() / PROJECTS_FILENAME
+
+
+def load_project_roots() -> list[str]:
+    """读取项目根目录列表；无文件或损坏时返回默认值。去重保序、绝对路径规范化。"""
+    roots: list[str] = []
+    path = _projects_file()
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+            raw = data.get("roots") if isinstance(data, dict) else None
+            if isinstance(raw, list):
+                roots = [str(r) for r in raw]
+        except (OSError, ValueError):
+            roots = []
+    if not roots:
+        roots = [DEFAULT_PROJECT_ROOT]
+    result: list[str] = []
+    seen: set[str] = set()
+    for r in roots:
+        text = str(r).strip()
+        if not text:
+            continue
+        key = os.path.normcase(text)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(text)
+    return result
+
+
+def save_project_roots(roots: list) -> list[str]:
+    """校验并保存项目根目录列表，返回规范化后的列表。非法项直接拒绝。"""
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for r in roots or []:
+        text = str(r or "").strip()
+        if not text:
+            continue
+        p = Path(text)
+        if not p.is_absolute():
+            raise ValueError(f"项目根必须是绝对路径：{text}")
+        if not p.is_dir():
+            raise ValueError(f"项目根不存在或不是目录：{text}")
+        norm = os.path.normcase(p)
+        if norm in seen:
+            continue
+        seen.add(norm)
+        cleaned.append(str(p))
+    if not cleaned:
+        raise ValueError("至少需要一个项目根目录")
+    _projects_file().parent.mkdir(parents=True, exist_ok=True)
+    _projects_file().write_text(
+        json.dumps({"roots": cleaned}, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return cleaned
+
+
+def project_dirs(roots: list[str] | None = None) -> list[dict]:
+    """枚举项目：每个项目根下的一级子目录视为独立项目（跳过点开头目录）。"""
+    result: list[dict] = []
+    seen: set[str] = set()
+    for root_text in roots if roots is not None else load_project_roots():
+        root = Path(root_text)
+        if not root.is_dir():
+            continue
+        try:
+            children = sorted(root.iterdir(), key=lambda p: p.name.lower())
+        except OSError:
+            continue
+        for child in children:
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            key = os.path.normcase(child)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append({"project": child.name, "root": child})
+    return result
+
+
+def project_skill_roots(project_path: Path) -> dict:
+    """某项目的三端项目级 skill 根映射 {tool: Path}。"""
+    return {tool: project_path / f".{tool}" / "skills" for tool in TOOLS}
+
+
+def all_known_skill_roots() -> list[Path]:
+    """全部已知 skill 根（全局 + 各项目级），用于路径归属校验。"""
+    roots = list(global_skill_roots().values())
+    for proj in project_dirs():
+        roots.extend(project_skill_roots(proj["root"]).values())
+    return roots
+
+
+# ---------------- frontmatter 解析与 skill 识别 ----------------
+
+
+def parse_frontmatter(text: str) -> tuple[dict, str]:
+    """解析 SKILL.md 的 YAML frontmatter，返回 ({...}, 正文)。无 frontmatter 返回 ({}, 原文)。"""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}, text
+    end = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end is None:
+        return {}, text
+    block = "\n".join(lines[1:end])
+    body = "\n".join(lines[end + 1 :]).lstrip("\n")
+    try:
+        data = yaml.safe_load(block)
+    except yaml.YAMLError:
+        return {}, body
+    return (data if isinstance(data, dict) else {}), body
+
+
+def read_skill(skill_dir: Path, full: bool = False) -> dict | None:
+    """读取 skill bundle 元数据；缺 SKILL.md 或目录不可读时返回 None。
+
+    full=True 时附带 frontmatter 原始 dict、正文与全文，供内容预览使用。
+    """
+    md = skill_dir / SKILL_FILE
+    if not md.is_file():
+        return None
+    try:
+        # utf-8-sig 兼容带 BOM 的文件（Windows 编辑器常见）
+        raw_text = md.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError as e:
+        logger.warning("读取 %s 失败：%s", md, e)
+        return None
+    meta, body = parse_frontmatter(raw_text)
+    info = {
+        "dir_name": skill_dir.name,
+        "path": str(skill_dir),
+        "name": str(meta.get("name") or "").strip() or skill_dir.name,
+        "description": str(meta.get("description") or "").strip(),
+    }
+    if full:
+        info["frontmatter"] = meta
+        info["body"] = body
+        info["raw"] = raw_text
+    return info
+
+
+def _scan_root(root: Path, tool: str, scope: str, project: str | None) -> list[dict]:
+    """扫描一个 skill 根，返回其中合法 bundle 列表（跳过点开头目录如 Codex 的 .system/）。"""
+    skills: list[dict] = []
+    if not root.is_dir():
+        return skills
+    try:
+        children = sorted(root.iterdir(), key=lambda p: p.name.lower())
+    except OSError:
+        return skills
+    for child in children:
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        info = read_skill(child)
+        if info is None:
+            continue
+        info["tool"] = tool
+        info["scope"] = scope
+        info["project"] = project
+        skills.append(info)
+    return skills
+
+
+def _aggregate(entries: list[dict]) -> list[dict]:
+    """同一上下文内按 frontmatter name 聚合，标注端数与是否重复。"""
+    groups: dict[str, list[dict]] = {}
+    order: list[str] = []
+    for entry in entries:
+        name = entry["name"]
+        if name not in groups:
+            groups[name] = []
+            order.append(name)
+        groups[name].append(entry)
+    result = []
+    for name in sorted(order, key=str.lower):
+        copies = groups[name]
+        ends = sorted({c["tool"] for c in copies}, key=TOOLS.index)
+        first = copies[0]
+        result.append(
+            {
+                "name": name,
+                "description": first["description"],
+                "ends": ends,
+                "end_count": len(ends),
+                "duplicate": len(copies) > 1,
+                "copies": copies,
+            }
+        )
+    return result
+
+
+def discover() -> dict:
+    """全量发现：全局上下文按 name 聚合；每个项目上下文各自聚合。"""
+    global_entries: list[dict] = []
+    roots = global_skill_roots()
+    for tool in TOOLS:
+        global_entries.extend(_scan_root(roots[tool], tool, "global", None))
+
+    projects_out = []
+    for proj in project_dirs():
+        proots = project_skill_roots(proj["root"])
+        entries: list[dict] = []
+        for tool in TOOLS:
+            entries.extend(_scan_root(proots[tool], tool, "project", proj["project"]))
+        if not entries:
+            continue  # 只收录含至少一个 skill 的项目
+        projects_out.append(
+            {
+                "project": proj["project"],
+                "root": str(proj["root"]),
+                "skills": _aggregate(entries),
+            }
+        )
+
+    return {
+        "global": _aggregate(global_entries),
+        "projects": projects_out,
+        "roots": {tool: str(path) for tool, path in roots.items()},
+        "project_roots": load_project_roots(),
+    }
+
+
+# ---------------- 路径归属校验（删除 / 打开 / 预览的安全前提） ----------------
+
+
+def _normcase(path: Path) -> str:
+    return os.path.normcase(path)
+
+
+def locate_skill(path_text: str, require_skill_md: bool = True) -> Path:
+    """校验给定路径位于某个已知 skill 根之下（且是其中的直接子目录）。
+
+    校验失败抛 ValueError；成功返回 resolve 后的目录路径。
+    """
+    if not path_text or not str(path_text).strip():
+        raise ValueError("缺少 skill 路径")
+    try:
+        target = Path(str(path_text)).resolve()
+    except (OSError, ValueError) as e:
+        raise ValueError(f"无效的 skill 路径：{e}") from e
+    if not target.is_dir():
+        raise ValueError(f"skill 目录不存在：{target}")
+    known = [_normcase(r.resolve()) for r in all_known_skill_roots()]
+    parent = _normcase(target.parent)
+    if parent not in known:
+        raise ValueError("该路径不在任何已知 skill 存放区中，拒绝操作")
+    if require_skill_md and not (target / SKILL_FILE).is_file():
+        raise ValueError(f"该目录不是合法的 skill bundle（缺少 {SKILL_FILE}）")
+    return target
+
+
+def skill_location(target: Path) -> dict:
+    """推断 skill 目录的位置属性（scope/tool/project）。"""
+    parent = _normcase(target.parent)
+    for tool in TOOLS:
+        root = global_skill_roots()[tool]
+        if _normcase(root.resolve()) == parent:
+            return {"scope": "global", "tool": tool, "project": None}
+    for proj in project_dirs():
+        for tool in TOOLS:
+            root = project_skill_roots(proj["root"])[tool]
+            if _normcase(root.resolve()) == parent:
+                return {"scope": "project", "tool": tool, "project": proj["project"]}
+    return {"scope": "unknown", "tool": "", "project": None}
+
+
+def _root_for(scope: str, tool: str, project: str | None) -> Path:
+    if scope == "global":
+        roots = global_skill_roots()
+        if tool not in roots:
+            raise ValueError(f"未知工具：{tool}")
+        return roots[tool]
+    if scope == "project":
+        for proj in project_dirs():
+            if proj["project"] == project:
+                return project_skill_roots(proj["root"])[tool]
+        raise ValueError(f"未找到项目：{project}")
+    raise ValueError(f"未知 scope：{scope}")
+
+
+# ---------------- 回收站 ----------------
+
+
+def trash_dir() -> Path:
+    d = get_data_dir() / TRASH_DIR_NAME
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def purge_expired(db) -> int:
+    """惰性清理超过 30 天的回收站条目，返回本次清理条数。"""
+    from . import models
+
+    deadline = datetime.now() - timedelta(days=TRASH_KEEP_DAYS)
+    expired = db.query(models.SkillTrash).filter(models.SkillTrash.trash_time <= deadline).all()
+    purged = 0
+    for item in expired:
+        p = Path(item.trash_path)
+        if p.exists():
+            try:
+                shutil.rmtree(p)
+            except OSError as e:
+                logger.warning("清理回收站目录失败 %s：%s", p, e)
+                continue  # 清理失败时保留记录，下次再试
+        db.delete(item)
+        purged += 1
+    if purged:
+        db.commit()
+        logger.info("回收站清理了 %s 条过期条目", purged)
+    return purged
+
+
+def delete_to_trash(db, path_text: str) -> dict:
+    """把 skill 目录移入回收站，返回操作结果（含顺带清理的过期条数）。"""
+    from . import models
+
+    target = locate_skill(path_text)
+    location = skill_location(target)
+    purged = purge_expired(db)
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dest = trash_dir() / f"{target.name}.{ts}"
+    n = 1
+    while dest.exists():
+        dest = trash_dir() / f"{target.name}.{ts}_{n}"
+        n += 1
+    try:
+        shutil.move(str(target), str(dest))
+    except OSError as e:
+        raise ValueError(f"移动到回收站失败：{e}") from e
+
+    meta = read_skill(dest) or {}
+    row = models.SkillTrash(
+        skill_name=meta.get("name") or target.name,
+        dir_name=target.name,
+        tool=location["tool"],
+        scope=location["scope"],
+        project=location["project"],
+        original_path=str(target),
+        trash_path=str(dest),
+        trash_time=datetime.now(),
+    )
+    db.add(row)
+    db.commit()
+    logger.info("skill「%s」已移入回收站（原位置 %s）", row.skill_name, target)
+    return {"deleted": True, "name": row.skill_name, "purged_expired": purged}
+
+
+def serialize_trash(item) -> dict:
+    days_left = max(
+        0,
+        TRASH_KEEP_DAYS - (datetime.now() - item.trash_time).days,
+    )
+    return {
+        "id": item.id,
+        "name": item.skill_name,
+        "dir_name": item.dir_name,
+        "tool": item.tool,
+        "scope": item.scope,
+        "project": item.project,
+        "original_path": item.original_path,
+        "trash_time": item.trash_time.isoformat(sep=" ", timespec="seconds"),
+        "days_left": days_left,
+    }
+
+
+def list_trash(db) -> dict:
+    """回收站列表（顺带执行过期清理），purged_expired 为本次清理条数。"""
+    from . import models
+
+    purged = purge_expired(db)
+    rows = (
+        db.query(models.SkillTrash)
+        .order_by(models.SkillTrash.trash_time.desc())
+        .all()
+    )
+    return {"items": [serialize_trash(r) for r in rows], "purged_expired": purged}
+
+
+def restore_from_trash(db, trash_id: int) -> dict:
+    """从回收站恢复到原位置；原位置被占用时报错，不做覆盖。"""
+    from . import models
+
+    item = db.query(models.SkillTrash).filter(models.SkillTrash.id == trash_id).first()
+    if not item:
+        raise ValueError("回收站中不存在该条目")
+    src = Path(item.trash_path)
+    if not src.exists():
+        db.delete(item)
+        db.commit()
+        raise ValueError("回收站目录已丢失，条目已被移除")
+    dest = Path(item.original_path)
+    if dest.exists():
+        raise ValueError(f"原位置已存在同名目录，无法恢复：{dest}")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.move(str(src), str(dest))
+    except OSError as e:
+        raise ValueError(f"恢复失败：{e}") from e
+    db.delete(item)
+    db.commit()
+    logger.info("skill「%s」已恢复到 %s", item.skill_name, dest)
+    return {"restored": True, "name": item.skill_name, "path": str(dest)}
+
+
+def delete_permanent(db, trash_id: int) -> dict:
+    """彻底删除回收站中的单个条目。"""
+    from . import models
+
+    item = db.query(models.SkillTrash).filter(models.SkillTrash.id == trash_id).first()
+    if not item:
+        raise ValueError("回收站中不存在该条目")
+    src = Path(item.trash_path)
+    if src.exists():
+        try:
+            shutil.rmtree(src)
+        except OSError as e:
+            raise ValueError(f"彻底删除失败：{e}") from e
+    db.delete(item)
+    db.commit()
+    return {"deleted_permanently": True, "name": item.skill_name}
+
+
+# ---------------- 迁移（复制语义） ----------------
+
+
+def _find_source(descriptor: dict) -> tuple[Path, dict]:
+    """按 (scope, tool, project, name/dir_name) 定位源 skill 目录。"""
+    scope = descriptor.get("scope")
+    tool = descriptor.get("tool")
+    project = descriptor.get("project")
+    name = str(descriptor.get("name") or "").strip()
+    if not name:
+        raise ValueError("迁移源缺少 skill 名称")
+    if scope == "global":
+        entries = _scan_root(_root_for("global", tool, None), tool, "global", None)
+    elif scope == "project":
+        found = None
+        for proj in project_dirs():
+            if proj["project"] == project:
+                found = proj
+                break
+        if found is None:
+            raise ValueError(f"未找到项目：{project}")
+        entries = _scan_root(
+            project_skill_roots(found["root"])[tool], tool, "project", project
+        )
+    else:
+        raise ValueError(f"未知 scope：{scope}")
+
+    lowered = name.lower()
+    for entry in entries:
+        if entry["name"].lower() == lowered or entry["dir_name"].lower() == lowered:
+            return Path(entry["path"]), entry
+    where = "全局" if scope == "global" else f"项目「{project}」"
+    raise ValueError(f"在{where}{TOOL_LABELS.get(tool, tool)}端未找到 skill：{name}")
+
+
+def _trash_existing_conflicts(db, dest_root: Path, incoming_name: str, incoming_dir: str) -> int:
+    """目标根下已存在的同名 skill 先移入回收站，返回处理条数。"""
+    moved = 0
+    lowered_name = incoming_name.lower()
+    lowered_dir = incoming_dir.lower()
+    if not dest_root.is_dir():
+        return 0
+    for child in sorted(dest_root.iterdir(), key=lambda p: p.name.lower()):
+        if not child.is_dir():
+            continue
+        meta = read_skill(child)
+        same_dir = child.name.lower() == lowered_dir
+        same_name = bool(meta) and meta["name"].lower() == lowered_name
+        if not (same_dir or same_name):
+            continue
+        location = skill_location(child)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dest = trash_dir() / f"{child.name}.{ts}"
+        n = 1
+        while dest.exists():
+            dest = trash_dir() / f"{child.name}.{ts}_{n}"
+            n += 1
+        shutil.move(str(child), str(dest))
+        from . import models
+
+        db.add(
+            models.SkillTrash(
+                skill_name=(meta or {}).get("name") or child.name,
+                dir_name=child.name,
+                tool=location["tool"],
+                scope=location["scope"],
+                project=location["project"],
+                original_path=str(child),
+                trash_path=str(dest),
+                trash_time=datetime.now(),
+            )
+        )
+        moved += 1
+    if moved:
+        db.commit()
+    return moved
+
+
+def migrate(db, sources: list[dict], targets: list[dict]) -> dict:
+    """一键迁移：sources × targets 逐对复制（非破坏性，源端保留）。
+
+    每对迁移写入一条 SkillMigration 日志；返回汇总结果供前端提示。
+    """
+    from . import models
+
+    if not sources:
+        raise ValueError("请选择要迁移的 skill")
+    if not targets:
+        raise ValueError("请选择迁移目标")
+
+    resolved_sources = []
+    for s in sources:
+        path, entry = _find_source(s)
+        resolved_sources.append((path, entry))
+
+    # 目标合法性预校验：未知工具 / 项目 / scope 在任何复制发生前整体失败
+    for t in targets:
+        _root_for(t.get("scope"), t.get("tool"), t.get("project"))
+
+    results = []
+    migrated = skipped = conflicts = failed = 0
+    seen_pairs: set[tuple[str, str]] = set()
+
+    for s_idx, (src, entry) in enumerate(resolved_sources):
+        s_desc = sources[s_idx]
+        for t in targets:
+            t_scope = t.get("scope")
+            t_tool = t.get("tool")
+            t_project = t.get("project")
+            if t_scope not in ("global", "project"):
+                raise ValueError(f"未知 scope：{t_scope}")
+            if t_tool not in TOOLS:
+                raise ValueError(f"未知工具：{t_tool}")
+            if t_scope == "global":
+                dest_key = ("global", t_tool, "")
+            else:
+                dest_key = ("project", t_tool, t_project or "")
+            target_label = (
+                f"全局 · {TOOL_LABELS[t_tool]}"
+                if t_scope == "global"
+                else f"项目「{t_project}」· {TOOL_LABELS[t_tool]}"
+            )
+
+            pair_key = (str(src), "|".join(dest_key))
+            if pair_key in seen_pairs:
+                continue
+            seen_pairs.add(pair_key)
+
+            # 目标位置与源完全一致时跳过
+            if (
+                (s_desc.get("scope") == t_scope)
+                and (s_desc.get("tool") == t_tool)
+                and ((s_desc.get("project") or "") == dest_key[2])
+            ):
+                skipped += 1
+                results.append(
+                    {
+                        "source": entry["name"],
+                        "target": target_label,
+                        "status": "skipped",
+                        "detail": "源与目标相同",
+                    }
+                )
+                continue
+
+            base = {
+                "skill_name": entry["name"],
+                "source_tool": s_desc.get("tool"),
+                "source_scope": s_desc.get("scope"),
+                "source_project": s_desc.get("project"),
+                "source_path": str(src),
+                "target_tool": t_tool,
+                "target_scope": t_scope,
+                "target_project": t_project,
+            }
+            try:
+                dest_root = _root_for(t_scope, t_tool, t_project)
+                dest_root.mkdir(parents=True, exist_ok=True)
+                dest = dest_root / src.name
+                trashed = _trash_existing_conflicts(db, dest_root, entry["name"], src.name)
+                conflicts += trashed
+                shutil.copytree(src, dest)
+                migrated += 1
+                detail = f"已复制到 {dest}"
+                if trashed:
+                    detail += f"；目标端旧版 {trashed} 份已移入回收站"
+                db.add(models.SkillMigration(**base, status="success", detail=detail))
+                results.append(
+                    {
+                        "source": entry["name"],
+                        "target": target_label,
+                        "status": "success",
+                        "detail": detail,
+                    }
+                )
+                logger.info("skill「%s」迁移成功：%s", entry["name"], detail)
+            except Exception as e:  # 单对失败不影响其余迁移，日志留痕
+                failed += 1
+                db.add(
+                    models.SkillMigration(**base, status="failed", detail=str(e))
+                )
+                results.append(
+                    {
+                        "source": entry["name"],
+                        "target": target_label,
+                        "status": "failed",
+                        "detail": str(e),
+                    }
+                )
+                logger.exception("skill「%s」迁移失败", entry["name"])
+
+    db.commit()
+    return {
+        "migrated": migrated,
+        "skipped": skipped,
+        "conflicts_trashed": conflicts,
+        "failed": failed,
+        "results": results,
+    }
+
+
+def list_migrations(db, limit: int = 200) -> list[dict]:
+    """最近的迁移日志（新→旧）。"""
+    from . import models
+
+    rows = (
+        db.query(models.SkillMigration)
+        .order_by(models.SkillMigration.migrate_time.desc(), models.SkillMigration.id.desc())
+        .limit(max(1, min(limit, 500)))
+        .all()
+    )
+
+    def fmt(row) -> dict:
+        def place(scope, project):
+            if scope == "global":
+                return "全局"
+            return f"项目「{project or '?'}」"
+
+        return {
+            "id": row.id,
+            "skill_name": row.skill_name,
+            "source": f"{place(row.source_scope, row.source_project)} · {TOOL_LABELS.get(row.source_tool, row.source_tool)}",
+            "target": f"{place(row.target_scope, row.target_project)} · {TOOL_LABELS.get(row.target_tool, row.target_tool)}",
+            "status": row.status,
+            "detail": row.detail,
+            "migrate_time": row.migrate_time.isoformat(sep=" ", timespec="seconds"),
+        }
+
+    return [fmt(r) for r in rows]
+
+
+# ---------------- 打开 / 预览 ----------------
+
+
+def open_in_explorer(path_text: str) -> dict:
+    """在系统资源管理器中打开 skill 目录。"""
+    target = locate_skill(path_text)
+    try:
+        if os.name == "nt":
+            os.startfile(str(target))  # noqa: S606  # Windows 资源管理器
+        elif os.uname().sysname == "Darwin":  # pragma: no cover
+            subprocess.Popen(["open", str(target)])
+        else:  # pragma: no cover
+            subprocess.Popen(["xdg-open", str(target)])
+    except OSError as e:
+        raise ValueError(f"打开资源管理器失败：{e}") from e
+    return {"opened": True, "path": str(target)}
+
+
+def read_content(path_text: str) -> dict:
+    """读取 SKILL.md 内容供前端预览渲染。"""
+    target = locate_skill(path_text)
+    info = read_skill(target, full=True)
+    if info is None:
+        raise ValueError(f"该目录不是合法的 skill bundle（缺少 {SKILL_FILE}）")
+    return {
+        "name": info["name"],
+        "description": info["description"],
+        "dir_name": info["dir_name"],
+        "path": str(target),
+        "frontmatter": info["frontmatter"],
+        "body": info["body"],
+        "raw": info["raw"],
+    }

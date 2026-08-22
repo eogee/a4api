@@ -52,3 +52,38 @@ class Backup(Base):
     config_id = Column(Integer, nullable=True)
     backup_time = Column(DateTime, default=datetime.now)
     file_path = Column(String(500), nullable=False)
+
+
+class SkillMigration(Base):
+    """Skill 迁移日志（复制语义，一次 source×target 一条）。"""
+
+    __tablename__ = "skill_migrations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    skill_name = Column(String(200), nullable=False)
+    source_tool = Column(String(20), nullable=False)  # claude / codex / dsh
+    source_scope = Column(String(10), nullable=False)  # global / project
+    source_project = Column(String(200), nullable=True)
+    source_path = Column(String(500), nullable=False)
+    target_tool = Column(String(20), nullable=False)
+    target_scope = Column(String(10), nullable=False)
+    target_project = Column(String(200), nullable=True)
+    status = Column(String(20), nullable=False)  # success / failed
+    detail = Column(Text, default="")
+    migrate_time = Column(DateTime, default=datetime.now)
+
+
+class SkillTrash(Base):
+    """Skill 回收站条目；超 30 天惰性清理，可恢复原位。"""
+
+    __tablename__ = "skill_trash"
+
+    id = Column(Integer, primary_key=True, index=True)
+    skill_name = Column(String(200), nullable=False)  # frontmatter name
+    dir_name = Column(String(200), nullable=False)  # 目录名（回收站目录前缀）
+    tool = Column(String(20), nullable=True)  # 来源端 claude / codex / dsh
+    scope = Column(String(10), nullable=True)  # global / project
+    project = Column(String(200), nullable=True)  # 项目级来源项目名
+    original_path = Column(String(500), nullable=False)  # 原位置（恢复目标）
+    trash_path = Column(String(500), nullable=False)  # 回收站中的当前路径
+    trash_time = Column(DateTime, default=datetime.now)

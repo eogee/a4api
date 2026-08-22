@@ -66,6 +66,8 @@ Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Respons
 - API Key 使用 Windows DPAPI 加密存储，接口永不回显明文
 - 本地翻译代理仅监听 127.0.0.1，并以随机 token 鉴权
 - 切换 Claude Code 配置后可选择一键重启 Claude Code；Codex 配置写入后重启 Codex 生效；dsh 配置热加载，新会话即生效
+- 三端技能管理：自动发现 Claude Code / Codex / dsh 的全局与项目级 skill 并聚合标注；跨端迁移为非破坏复制（源端保留），目标端同名旧版自动移入回收站而非静默覆盖；「一键适配三端」把项目内全部 skill 按缺失端一次补齐，迁移过程带进度条并临时锁定页面其他操作
+- 技能回收站：删除的 skill 移入回收站，30 天内可恢复原位或彻底删除；每次迁移写入日志可追溯
 - 单实例检测，防止重复运行
 
 ### 预置服务商模板

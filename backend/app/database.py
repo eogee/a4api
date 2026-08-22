@@ -85,8 +85,13 @@ engine = create_engine(
 
 
 def ensure_schema() -> None:
-    """轻量迁移：为旧库补充新列（SQLAlchemy create_all 不会修改已存在的表）。"""
+    """轻量迁移：为旧库补充新列 / 补建新表（SQLAlchemy create_all 不会修改已存在的表）。"""
     from sqlalchemy import text
+
+    # Skill 管理两张表的补建：对旧库（create_all 时模型尚不存在的情况）兜底
+    from .models import SkillMigration, SkillTrash
+
+    Base.metadata.create_all(bind=engine, tables=[SkillMigration.__table__, SkillTrash.__table__])
 
     with engine.begin() as conn:
         cols = {row[1] for row in conn.execute(text("PRAGMA table_info(configurations)"))}

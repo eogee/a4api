@@ -23,6 +23,7 @@ dist/
 .codex/
 .cursor/
 .impeccable/
+.dsh
 
 
 # 开发文档

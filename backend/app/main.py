@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from . import models  # noqa: F401  # 注册模型建表
-from .api.v1 import configs, providers, switch, update
+from .api.v1 import configs, providers, skills, switch, update
 from .database import Base, engine, ensure_schema
 from .logging_config import setup_logging
 from .seed import seed_providers
@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(providers.router, prefix="/api/v1", tags=["providers"])
     app.include_router(configs.router, prefix="/api/v1", tags=["configs"])
     app.include_router(switch.router, prefix="/api/v1", tags=["switch"])
+    app.include_router(skills.router, prefix="/api/v1", tags=["skills"])
     app.include_router(update.router, prefix="/api/v1", tags=["update"])
 
     # 前端静态资源：开发/桌面运行时由后端统一托管

@@ -35,6 +35,7 @@
       <ul class="layui-tab-title">
         <li class="layui-this" lay-id="configs">配置方案</li>
         <li lay-id="providers">供应商管理</li>
+        <li lay-id="skills">技能管理</li>
       </ul>
       <div class="layui-tab-content">
         <div class="layui-tab-item layui-show">
@@ -48,6 +49,23 @@
             <button class="layui-btn layui-btn-normal layui-btn-sm" id="btn-add-provider">新增供应商</button>
           </div>
           <div id="provider-list" class="provider-list">
+            <div class="empty-tip">加载中…</div>
+          </div>
+        </div>
+        <div class="layui-tab-item">
+          <div class="skills-header">
+            <div class="seg-control" id="skills-scope-seg">
+              <button class="seg-btn seg-active" data-view="global">全局视图</button>
+              <button class="seg-btn" data-view="project">项目视图</button>
+            </div>
+            <div class="skills-header-actions">
+              <a href="javascript:;" class="update-link" id="btn-skills-roots">项目根目录</a>
+              <a href="javascript:;" class="update-link" id="btn-skills-migrations">迁移日志</a>
+              <button class="layui-btn layui-btn-sm" id="btn-skills-trash">回收站</button>
+              <button class="layui-btn layui-btn-sm" id="btn-skills-refresh">刷新</button>
+            </div>
+          </div>
+          <div id="skills-content" class="card-grid">
             <div class="empty-tip">加载中…</div>
           </div>
         </div>

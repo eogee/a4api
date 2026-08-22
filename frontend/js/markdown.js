@@ -52,6 +52,43 @@
       listType = null;
     }
 
+    // ---- GFM 表格辅助 ----
+    // 分隔行：整行每个单元格都是 :--- / --- : 之类的短横组合
+    function isSepLine(t) {
+      if (!/-{2,}/.test(t)) return false;
+      var x = t.trim().replace(/^\s*\|/, '').replace(/\|\s*$/, '').trim();
+      return x.split('|').every(function (c) { return /^:?-+:?$/.test(c.replace(/\s/g, '')); });
+    }
+
+    // 该行是否为表格起始行（本行含竖线且下一行是分隔行）
+    function isTableStart(idx) {
+      if (idx + 1 >= n) return false;
+      return lines[idx].indexOf('|') !== -1 && isSepLine(lines[idx + 1]);
+    }
+
+    // 拆一行单元格；支持 \| 转义竖线
+    function splitRow(line) {
+      var t = line.trim();
+      if (t.charAt(0) === '|') t = t.slice(1);
+      if (t.charAt(t.length - 1) === '|' && t.charAt(t.length - 2) !== '\\') t = t.slice(0, -1);
+      var PROTECT = '\u0001';
+      t = t.replace(/\\\|/g, PROTECT); // 必须在切分前保护转义竖线
+      return t.split('|').map(function (c) {
+        return c.trim().replace(new RegExp(PROTECT, 'g'), '|');
+      });
+    }
+
+    function alignOf(sepCell) {
+      var c = String(sepCell == null ? '' : sepCell).replace(/\s/g, '').toLowerCase();
+      var left = c.charAt(0) === ':', right = c.charAt(c.length - 1) === ':' && c.length > 1;
+      if (left && right) return 'center';
+      if (right) return 'right';
+      if (left) return 'left';
+      return '';
+    }
+
+    function alignAttr(a) { return a ? ' style="text-align:' + a + '"' : ''; }
+
     while (i < n) {
       var line = lines[i];
       var t = line.trim();
@@ -86,6 +123,32 @@
         continue;
       }
 
+      // 表格（GFM）：表头行 + 分隔行 + 数据行
+      if (isTableStart(i)) {
+        closeList();
+        var header = splitRow(lines[i]);
+        var seps = splitRow(lines[i + 1]);
+        var cols = header.length;
+        var aligns = [];
+        for (var k = 0; k < cols; k++) aligns.push(alignOf(seps[k]));
+        var tbl = '<table><thead><tr>';
+        for (k = 0; k < cols; k++) tbl += '<th' + alignAttr(aligns[k]) + '>' + inline(header[k]) + '</th>';
+        tbl += '</tr></thead><tbody>';
+        i += 2;
+        while (i < n && lines[i].trim() !== '' && lines[i].indexOf('|') !== -1) {
+          var row = splitRow(lines[i]);
+          while (row.length < cols) row.push('');
+          if (row.length > cols) row = row.slice(0, cols);
+          tbl += '<tr>';
+          for (k = 0; k < cols; k++) tbl += '<td' + alignAttr(aligns[k]) + '>' + inline(row[k]) + '</td>';
+          tbl += '</tr>';
+          i++;
+        }
+        tbl += '</tbody></table>';
+        out.push(tbl);
+        continue;
+      }
+
       // 无序列表
       var ul = /^[-*+]\s+(.*)$/.exec(t);
       if (ul) {
@@ -102,11 +165,11 @@
         i++; continue;
       }
 
-      // 段落：收集到空行或下一个块标记
+      // 段落：收集到空行或下一个块标记（含表格起始行）
       closeList();
       var para = [line];
       i++;
-      while (i < n && lines[i].trim() !== '' &&
+      while (i < n && lines[i].trim() !== '' && !isTableStart(i) &&
              !/^(#{1,6}\s|```|>\s?|[-*+]\s|\d+\.\s)/.test(lines[i].trim())) {
         para.push(lines[i]);
         i++;

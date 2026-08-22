@@ -92,3 +92,32 @@ class StatusOut(BaseModel):
     dsh_file_exists: bool = False
     current_dsh_model: Optional[str] = None
     current_dsh_provider: Optional[str] = None
+
+
+# ---------------- Skill 管理 ----------------
+
+
+class SkillPathIn(BaseModel):
+    path: str
+
+
+class ProjectRootsIn(BaseModel):
+    roots: list[str]
+
+
+class SkillSourceIn(BaseModel):
+    scope: str = Field(pattern="^(global|project)$")
+    tool: str = Field(pattern="^(claude|codex|dsh)$")
+    project: Optional[str] = None
+    name: str  # frontmatter name 或目录名
+
+
+class SkillTargetIn(BaseModel):
+    scope: str = Field(pattern="^(global|project)$")
+    tool: str = Field(pattern="^(claude|codex|dsh)$")
+    project: Optional[str] = None
+
+
+class SkillMigrateIn(BaseModel):
+    sources: list[SkillSourceIn]
+    targets: list[SkillTargetIn]
