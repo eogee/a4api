@@ -30,8 +30,10 @@ DSH_LLM_NS = "llm-deepseek"
 DSH_MODEL_NS = "agent-default-model"
 DSH_PROVIDER_ROUTE = "deepseek-official"
 DSH_API_KEY_REF = "DEEPSEEK_API_KEY"
-# dsh 适配器默认 max_tokens 为 256000，远超多数上游（如智谱）的 131072 输出上限，
-# 会把请求直接打回 INVALID_REQUEST；切换时写一个兼容的安全值兜底。
+# dsh llm-deepseek 适配器自身的 maxTokens 默认值。
+DSH_ADAPTER_DEFAULT_MAX_TOKENS = 256000
+# dsh 适配器默认 max_tokens 为 256000，远超多数上游（如智谱、Console Go）的
+# 131072 输出上限，会把请求直接打回 INVALID_REQUEST；切换时写一个兼容的安全值兜底。
 DSH_DEFAULT_MAX_TOKENS = 131072
 
 
@@ -477,11 +479,18 @@ def build_dsh_settings(
     llm["apiKeyEnv"] = DSH_API_KEY_REF
     # 输出上限：显式填写 > 既有手动值 > 安全默认。
     # dsh 适配器默认 256000 会超出多数上游（如智谱）131072 的上限而被打回
-    # INVALID_REQUEST，故没有显式值时绝不能放行 dsh 的默认值。
+    # INVALID_REQUEST，故没有显式值时绝不能放行 dsh 的默认值；既有值恰好等于
+    # 适配器默认 256000 时视为历史遗留（并非用户手动选择），同样回落安全默认，
+    # 避免旧值跟随切换带到限制更严的上游（如实测 Console Go 限 [1,131072]）。
     if max_tokens is not None:
         llm["maxTokens"] = max_tokens
     else:
-        llm["maxTokens"] = llm.get("maxTokens") or DSH_DEFAULT_MAX_TOKENS
+        existing_tokens = llm.get("maxTokens")
+        llm["maxTokens"] = (
+            existing_tokens
+            if existing_tokens and existing_tokens != DSH_ADAPTER_DEFAULT_MAX_TOKENS
+            else DSH_DEFAULT_MAX_TOKENS
+        )
     data[DSH_LLM_NS] = llm
 
     model_ns = dict(data.get(DSH_MODEL_NS) or {})
@@ -492,14 +501,31 @@ def build_dsh_settings(
 
 
 def build_dsh_credentials(existing: dict | None, api_key: str, proxy_token: str | None = None) -> dict:
-    """在 .credentials.yaml 中写入 DEEPSEEK_API_KEY，保留其它凭证键。
+    """在 .credentials.yaml 的 refs 下写入 DEEPSEEK_API_KEY，保留其它凭证键。
 
     dsh 经本地翻译代理连接时，写入的应是代理鉴权 token（真实上游 key 由
     代理持有）；proxy_token 缺省时写真实 key（防御性直连场景）。
+
+    dsh 要求 version-1 布局：顶层仅允许 version / refs / records 三个键，
+    凭证全部嵌在 refs 下，任何未知顶层键都会让 dsh 拒绝启动。因此输出固定
+    为 {"version": 1, "refs": {...}}（records 存在时原样保留）；输入若还是
+    旧版扁平布局（凭证散在顶层），先并入 refs 一并迁移。
     """
     creds = dict(existing or {})
-    creds[DSH_API_KEY_REF] = proxy_token if proxy_token else api_key
-    return creds
+    refs = creds.get("refs")
+    refs = dict(refs) if isinstance(refs, dict) else {}
+    reserved = ("version", "refs", "records")
+    for key, value in creds.items():
+        if key in reserved or key in refs:
+            continue
+        if isinstance(value, str) and value:
+            refs[key] = value
+    refs[DSH_API_KEY_REF] = proxy_token if proxy_token else api_key
+    out: dict = {"version": 1, "refs": refs}
+    records = creds.get("records")
+    if isinstance(records, dict):
+        out["records"] = records
+    return out
 
 
 def _atomic_write_yaml(path: Path, data: dict) -> None:

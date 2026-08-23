@@ -121,6 +121,15 @@ def test_build_dsh_settings_preserves_existing_max_tokens():
     assert out["llm-deepseek"]["maxTokens"] == 8192
 
 
+def test_build_dsh_settings_resets_stale_adapter_default_max_tokens():
+    """回归：既有 maxTokens 恰为 dsh 适配器默认 256000 时视为历史遗留，
+    未显式填写时回落安全默认——避免旧值跟随切换带到限制更严的上游
+    （实测 Console Go 限 [1,131072]）被打回 400 [1210]。"""
+    existing = {"llm-deepseek": {"maxTokens": 256000}}
+    out = config_manager.build_dsh_settings(existing, _provider("openai"), "m1")
+    assert out["llm-deepseek"]["maxTokens"] == config_manager.DSH_DEFAULT_MAX_TOKENS
+
+
 def test_build_dsh_settings_explicit_max_tokens_overrides():
     """a4api 显式填写的 max_tokens 优先于既有手动值。"""
     existing = {"llm-deepseek": {"maxTokens": 8192}}
@@ -130,9 +139,45 @@ def test_build_dsh_settings_explicit_max_tokens_overrides():
     assert out["llm-deepseek"]["maxTokens"] == 100000
 
 
-def test_build_dsh_credentials_preserves_other_keys():
-    out = config_manager.build_dsh_credentials({"OTHER_SECRET": "keep"}, "sk-123")
-    assert out == {"OTHER_SECRET": "keep", "DEEPSEEK_API_KEY": "sk-123"}
+def test_build_dsh_credentials_preserves_other_refs():
+    """保留 refs 下其它凭证键；DEEPSEEK_API_KEY 写入 refs（version-1 布局）。"""
+    existing = {"version": 1, "refs": {"OTHER_SECRET": "keep"}}
+    out = config_manager.build_dsh_credentials(existing, "sk-123")
+    assert out == {
+        "version": 1,
+        "refs": {"OTHER_SECRET": "keep", "DEEPSEEK_API_KEY": "sk-123"},
+    }
+
+
+def test_build_dsh_credentials_migrates_legacy_flat_layout():
+    """回归：旧版扁平文档的顶层凭证键并入 refs。
+
+    dsh 顶层只认 version/refs/records，未知顶层键（如误写到顶层的
+    DEEPSEEK_API_KEY）会让 dsh 启动时抛 unknown top-level key 拒绝引导。
+    """
+    existing = {
+        "version": 1,
+        "refs": {"LLAMA_CPP_API_KEY": "1"},
+        "OTHER_SECRET": "keep",
+        "EMPTY": "",
+    }
+    out = config_manager.build_dsh_credentials(existing, "sk-123")
+    assert out == {
+        "version": 1,
+        "refs": {
+            "LLAMA_CPP_API_KEY": "1",
+            "OTHER_SECRET": "keep",
+            "DEEPSEEK_API_KEY": "sk-123",
+        },
+    }
+
+
+def test_build_dsh_credentials_preserves_records_section():
+    """records 段（如 OAuth 记录）存在时原样保留。"""
+    records = {"oauth/deepseek": {"kind": "grant", "payload": {"access_token": "t"}}}
+    existing = {"version": 1, "refs": {}, "records": records}
+    out = config_manager.build_dsh_credentials(existing, "sk-123")
+    assert out["records"] == records
 
 
 def test_build_dsh_settings_uses_proxy_base_url():
@@ -155,10 +200,8 @@ def test_build_dsh_settings_uses_proxy_base_url():
 
 def test_build_dsh_credentials_prefers_proxy_token():
     """回归：dsh 走代理时凭证里应写代理 token 而非真实上游 key。"""
-    out = config_manager.build_dsh_credentials(
-        {"OTHER_SECRET": "keep"}, "sk-real-key", proxy_token="proxy-token"
-    )
-    assert out == {"OTHER_SECRET": "keep", "DEEPSEEK_API_KEY": "proxy-token"}
+    out = config_manager.build_dsh_credentials(None, "sk-real-key", proxy_token="proxy-token")
+    assert out == {"version": 1, "refs": {"DEEPSEEK_API_KEY": "proxy-token"}}
 
 
 def test_atomic_write_dsh_settings(tmp_path, monkeypatch):

@@ -188,5 +188,6 @@ def test_dsh_target_writes_proxy_base_url_and_token(tmp_path, monkeypatch):
     assert dsh["agent-default-model"]["model"] == "test-model"
 
     creds = yaml.safe_load((tmp_path / "credentials.yaml").read_text(encoding="utf-8"))
-    assert creds["DEEPSEEK_API_KEY"] == _PROXY["token"]
+    # dsh 要求 version-1 布局：凭证必须嵌在 refs 下，顶层出现未知键会让 dsh 拒绝启动
+    assert creds == {"version": 1, "refs": {"DEEPSEEK_API_KEY": _PROXY["token"]}}
     db.close()
