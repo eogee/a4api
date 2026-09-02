@@ -179,3 +179,12 @@ class McpServerCreate(BaseModel):
     headers: dict[str, str] = {}
     cwd: Optional[str] = None
     description: str = ""
+
+
+class McpImportIn(BaseModel):
+    """粘贴 JSON 配置片段批量安装（兼容 mcpServers 顶层 / server 字典 / 单对象）。"""
+
+    scope: str = Field(pattern="^(global|project)$")
+    tool: str = Field(pattern="^(claude|codex|dsh|zcode)$")
+    project: Optional[str] = None
+    config_json: str

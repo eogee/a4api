@@ -113,3 +113,13 @@ def mcp_server_create(body: schemas.McpServerCreate):
         )
     except ValueError as e:
         raise HTTPException(409, str(e))
+
+
+@router.post("/mcp/servers/import")
+def mcp_server_import(body: schemas.McpImportIn):
+    """粘贴 JSON 配置片段批量安装；整体 JSON 非法返回 400，单条失败不中断。"""
+    try:
+        parsed = mcp_manager.parse_mcp_json(body.config_json)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return mcp_manager.import_servers(body.scope, body.tool, body.project, parsed)

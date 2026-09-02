@@ -1126,6 +1126,63 @@ def delete_permanent(db, trash_id: int) -> dict:
 
 # ---------------- 安装（新建 server） ----------------
 
+
+def parse_mcp_json(text: str) -> list[dict]:
+    """解析用户粘贴的 MCP server 配置片段（兼容多种来源）。
+
+    兼容输入：
+    - 顶层 mcpServers：`{"mcpServers": {"name": {...}}}`（直接复制 claude.json）
+    - 顶层 server 字典：`{"amap-maps": {"command": "npx", ...}}`
+    - 单 server 对象：无 name 时以键名兜底（各条目需是对象）
+    transport 按 type 显式值或 command→stdio / url→http 推断。
+    每条返回 create_server 可直接消费的字段 dict。
+    """
+    try:
+        data = json.loads(text)
+    except ValueError as e:
+        raise ValueError(f"JSON 解析失败：{e}")
+    if not isinstance(data, dict):
+        raise ValueError("配置片段必须是 JSON 对象")
+    if isinstance(data.get("mcpServers"), dict):
+        data = data["mcpServers"]
+    servers = []
+    for key, raw in data.items():
+        if not isinstance(raw, dict):
+            continue  # 非对象条目（如说明字段）跳过
+        typ = str(raw.get("type") or "").lower()
+        if typ not in ("stdio", "sse", "http"):
+            typ = "http" if raw.get("url") else "stdio"
+        servers.append(
+            {
+                "name": str(key).strip(),
+                "transport": typ,
+                "command": str(raw.get("command") or "").strip() or None,
+                "args": [str(a) for a in (raw.get("args") or []) if str(a).strip()],
+                "env": {str(k): str(v) for k, v in (raw.get("env") or {}).items() if str(k).strip()},
+                "url": str(raw.get("url") or "").strip() or None,
+                "headers": {str(k): str(v) for k, v in (raw.get("headers") or {}).items() if str(k).strip()},
+                "cwd": str(raw.get("cwd") or "").strip() or None,
+                "description": str(raw.get("description") or "").strip(),
+            }
+        )
+    if not servers:
+        raise ValueError("未解析到任何 MCP server，请检查配置片段")
+    return servers
+
+
+def import_servers(scope: str, tool: str, project: str | None, parsed: list[dict]) -> dict:
+    """批量安装（JSON 导入）多个 server：逐条独立安装，单条失败不中断。"""
+    installed: list[dict] = []
+    failed: list[dict] = []
+    for s in parsed:
+        name = s["name"]
+        try:
+            created = create_server(scope, tool, project, s)
+            installed.append({"name": name, "transport": created["transport"]})
+        except ValueError as e:
+            failed.append({"name": name, "error": str(e)})
+    return {"installed": installed, "failed": failed, "total": len(parsed)}
+
 def create_server(scope: str, tool: str, project: str | None, fields: dict) -> dict:
     """向指定端新建（安装）一个 MCP server；同名已存在时报错。
 

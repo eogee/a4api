@@ -1488,7 +1488,6 @@ layui.use(['layer', 'form', 'element'], function () {
 
   /* ---- MCP 安装（向指定端新建 server） ---- */
   var MCP_TOOLS = ['claude', 'codex', 'dsh', 'zcode'];
-  var MCP_SCOPE_PROJECT = { claude: true, codex: true, dsh: false, zcode: true };
 
   function kvFromTextarea(text) {
     var out = {};
@@ -1503,141 +1502,180 @@ layui.use(['layer', 'form', 'element'], function () {
 
   function openMcpInstall() {
     var cap = (mcpData && mcpData.capability) || {};
-    apiGet('/mcp/projects').then(function (pj) {
-      var projects = (pj && pj.projects) || [];
-      function toolOptions(selected) {
-        return MCP_TOOLS.map(function (t) {
-          var sel = t === selected ? ' selected' : '';
-          return '<option value="' + t + '"' + sel + '>' + TOOL_LABEL[t] + '</option>';
-        }).join('');
-      }
-      function projectOptions(selected) {
-        if (!projects.length) return '<option value="">（无项目，可先到技能页添加项目根）</option>';
-        return projects.map(function (p) {
-          var sel = p === selected ? ' selected' : '';
-          return '<option value="' + escapeHtml(p) + '"' + sel + '>' + escapeHtml(p) + '</option>';
-        }).join('');
-      }
-      var html =
-        '<form class="layui-form" lay-filter="mcp-install-form" style="padding:16px 24px 4px;">' +
+    function toolOptions(selected) {
+      return MCP_TOOLS.map(function (t) {
+        var sel = t === selected ? ' selected' : '';
+        return '<option value="' + t + '"' + sel + '>' + TOOL_LABEL[t] + '</option>';
+      }).join('');
+    }
+    var html =
+      '<form class="layui-form" lay-filter="mcp-install-form" style="padding:16px 24px 4px;">' +
+        '<div class="layui-form-item" style="margin-bottom:8px;">' +
+          '<div class="layui-input-block" style="margin-left:0;">' +
+            '<div class="seg-control" id="mi-mode-seg">' +
+              '<button type="button" class="seg-btn seg-active" data-mode="json">粘贴 JSON</button>' +
+              '<button type="button" class="seg-btn" data-mode="form">表单填写</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="layui-form-item">' +
+          '<label class="layui-form-label">安装到</label>' +
+          '<div class="layui-input-inline" style="width:140px;">' +
+            '<select name="mi_tool" id="mi-tool">' + toolOptions('claude') + '</select>' +
+          '</div>' +
+          '<div class="layui-form-mid layui-word-aux" style="margin-left:0;">全局配置</div>' +
+        '</div>' +
+        '<div id="mi-form-fields">' +
+        '<div class="layui-form-item">' +
+          '<label class="layui-form-label">名称</label>' +
+          '<div class="layui-input-block"><input type="text" name="mi_name" class="layui-input" placeholder="如：postgres / github"></div>' +
+        '</div>' +
+        '<div class="layui-form-item">' +
+          '<label class="layui-form-label">传输</label>' +
+          '<div class="layui-input-block"><select name="mi_transport" id="mi-transport"></select></div>' +
+        '</div>' +
+        '<div id="mi-stdio-fields">' +
           '<div class="layui-form-item">' +
-            '<label class="layui-form-label">安装到</label>' +
-            '<div class="layui-input-inline" style="width:120px;">' +
-              '<select name="mi_tool" id="mi-tool">' + toolOptions('claude') + '</select>' +
-            '</div>' +
-            '<div class="layui-input-inline" style="width:90px;">' +
-              '<select name="mi_scope" id="mi-scope">' +
-                '<option value="global">全局</option><option value="project">项目</option>' +
-              '</select>' +
-            '</div>' +
-            '<div class="layui-input-inline" style="width:180px;">' +
-              '<select name="mi_project" id="mi-project">' + projectOptions() + '</select>' +
-            '</div>' +
-          '</div>' +
-          '<div class="layui-form-item">' +
-            '<label class="layui-form-label">名称</label>' +
-            '<div class="layui-input-block"><input type="text" name="mi_name" class="layui-input" placeholder="如：postgres / github"></div>' +
-          '</div>' +
-          '<div class="layui-form-item">' +
-            '<label class="layui-form-label">传输</label>' +
-            '<div class="layui-input-block"><select name="mi_transport" id="mi-transport"></select></div>' +
-          '</div>' +
-          '<div id="mi-stdio-fields">' +
-            '<div class="layui-form-item">' +
-              '<label class="layui-form-label">启动命令</label>' +
-              '<div class="layui-input-block"><input type="text" name="mi_command" class="layui-input" placeholder="如：npx / python / 程序路径"></div>' +
-            '</div>' +
-            '<div class="layui-form-item">' +
-              '<label class="layui-form-label">参数</label>' +
-              '<div class="layui-input-block"><input type="text" name="mi_args" class="layui-input" placeholder="空格分隔，如：-y @modelcontextprotocol/server-github"></div>' +
-            '</div>' +
-            '<div class="layui-form-item">' +
-              '<label class="layui-form-label">环境变量</label>' +
-              '<div class="layui-input-block"><textarea name="mi_env" class="layui-textarea" rows="3" placeholder="每行 KEY=VALUE"></textarea></div>' +
-            '</div>' +
-          '</div>' +
-          '<div id="mi-url-fields" style="display:none;">' +
-            '<div class="layui-form-item">' +
-              '<label class="layui-form-label">服务地址</label>' +
-              '<div class="layui-input-block"><input type="text" name="mi_url" class="layui-input" placeholder="http(s)://host:port/mcp 或 …/sse"></div>' +
-            '</div>' +
-            '<div class="layui-form-item">' +
-              '<label class="layui-form-label">请求头</label>' +
-              '<div class="layui-input-block"><textarea name="mi_headers" class="layui-textarea" rows="3" placeholder="每行 KEY=VALUE，如 Authorization=Bearer xxx"></textarea></div>' +
-            '</div>' +
+            '<label class="layui-form-label">启动命令</label>' +
+            '<div class="layui-input-block"><input type="text" name="mi_command" class="layui-input" placeholder="如：npx / python / 程序路径"></div>' +
           '</div>' +
           '<div class="layui-form-item">' +
-            '<label class="layui-form-label">介绍</label>' +
-            '<div class="layui-input-block"><input type="text" name="mi_description" class="layui-input" placeholder="可选：这个 MCP 是干什么的"></div>' +
+            '<label class="layui-form-label">参数</label>' +
+            '<div class="layui-input-block"><input type="text" name="mi_args" class="layui-input" placeholder="空格分隔，如：-y @modelcontextprotocol/server-github"></div>' +
           '</div>' +
-        '</form>';
+          '<div class="layui-form-item">' +
+            '<label class="layui-form-label">环境变量</label>' +
+            '<div class="layui-input-block"><textarea name="mi_env" class="layui-textarea" rows="3" placeholder="每行 KEY=VALUE"></textarea></div>' +
+          '</div>' +
+        '</div>' +
+        '<div id="mi-url-fields" style="display:none;">' +
+          '<div class="layui-form-item">' +
+            '<label class="layui-form-label">服务地址</label>' +
+            '<div class="layui-input-block"><input type="text" name="mi_url" class="layui-input" placeholder="http(s)://host:port/mcp 或 …/sse"></div>' +
+          '</div>' +
+          '<div class="layui-form-item">' +
+            '<label class="layui-form-label">请求头</label>' +
+            '<div class="layui-input-block"><textarea name="mi_headers" class="layui-textarea" rows="3" placeholder="每行 KEY=VALUE，如 Authorization=Bearer xxx"></textarea></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="layui-form-item">' +
+          '<label class="layui-form-label">介绍</label>' +
+          '<div class="layui-input-block"><input type="text" name="mi_description" class="layui-input" placeholder="可选：这个 MCP 是干什么的"></div>' +
+        '</div>' +
+        '</div>' +
+        '<div id="mi-json-fields" style="display:none;">' +
+          '<div class="layui-form-item">' +
+            '<label class="layui-form-label">配置片段</label>' +
+            '<div class="layui-input-block"><textarea id="mi-json-input" class="layui-textarea" rows="10" placeholder="{\n  &quot;amap-maps&quot;: {\n    &quot;command&quot;: &quot;npx&quot;,\n    &quot;args&quot;: [&quot;-y&quot;, &quot;@amap/amap-maps-mcp-server&quot;],\n    &quot;env&quot;: { &quot;AMAP_MAPS_API_KEY&quot;: &quot;&quot; }\n  }\n}"></textarea>' +
+          '</div>' +
+          '<div class="layui-form-mid layui-word-aux" style="margin-left:110px;padding-top:4px;">兼容「mcpServers」顶层 / 名称作键的 server 字典 / 单对象，多条可一次批量导入</div>' +
+        '</div>' +
+      '</form>';
 
-      layer.open({
-        type: 1,
-        title: '安装 MCP 服务',
-        area: ['560px', 'auto'],
-        content: html,
-        btn: ['安装', '取消'],
-        success: function () {
-          function syncCapability() {
-            var tool = document.getElementById('mi-tool').value;
-            var scope = document.getElementById('mi-scope').value;
-            document.getElementById('mi-project').closest('.layui-form-item').style.display =
-              (scope === 'project' && MCP_SCOPE_PROJECT[tool]) ? '' : 'none';
-            if (scope === 'project' && !MCP_SCOPE_PROJECT[tool]) {
-              document.getElementById('mi-scope').value = 'global';
-            }
-            var transports = (cap[tool] || ['stdio']);
-            document.getElementById('mi-transport').innerHTML = transports.map(function (t) {
-              var label = t === 'http' ? 'HTTP（streamable）' : (t === 'sse' ? 'SSE' : 'stdio');
-              return '<option value="' + t + '">' + label + '</option>';
-            }).join('');
-            syncTransport();
-            form.render(null, 'mcp-install-form');
+    layer.open({
+      type: 1,
+      title: '安装 MCP 服务',
+      area: ['560px', 'auto'],
+      content: html,
+      btn: ['安装', '取消'],
+      success: function (layero) {
+        // 归位关闭按钮：layui 在 type:1 内联内容时把 setwin 渲染进 content，
+        // 移回层根标题栏（插入 content 之前 = title 之后），X 与标题同行。
+        var root = layero[0] || layero;
+        if (root && root.querySelector) {
+          var setwin = root.querySelector('.layui-layer-setwin');
+          var content = root.querySelector('.layui-layer-content');
+          if (setwin && content && content.contains(setwin)) {
+            root.insertBefore(setwin, content);
           }
-          function syncTransport() {
-            var t = document.getElementById('mi-transport').value;
-            document.getElementById('mi-stdio-fields').style.display = (t === 'stdio') ? '' : 'none';
-            document.getElementById('mi-url-fields').style.display = (t === 'stdio') ? 'none' : '';
-          }
-          document.getElementById('mi-tool').addEventListener('change', syncCapability);
-          document.getElementById('mi-scope').addEventListener('change', syncCapability);
-          document.getElementById('mi-transport').addEventListener('change', syncTransport);
-          syncCapability();
-        },
-        yes: function (index) {
-          var tool = document.getElementById('mi-tool').value;
-          var scope = document.getElementById('mi-scope').value;
-          var transport = document.getElementById('mi-transport').value;
-          var name = (document.getElementById('mi-name') ? document.getElementById('mi-name').value : '') || document.querySelector('input[name="mi_name"]').value;
-          var body = {
-            scope: scope,
-            tool: tool,
-            project: scope === 'project' && MCP_SCOPE_PROJECT[tool] ? document.getElementById('mi-project').value : null,
-            name: (name || '').trim(),
-            transport: transport,
-            description: (document.querySelector('input[name="mi_description"]').value || '').trim()
-          };
-          if (transport === 'stdio') {
-            body.command = document.querySelector('input[name="mi_command"]').value || '';
-            body.args = document.querySelector('input[name="mi_args"]').value.split(/\s+/).filter(Boolean);
-            body.env = kvFromTextarea(document.querySelector('textarea[name="mi_env"]').value);
-          } else {
-            body.url = document.querySelector('input[name="mi_url"]').value || '';
-            body.headers = kvFromTextarea(document.querySelector('textarea[name="mi_headers"]').value);
-          }
-          if (!body.name) { layer.msg('请填写 MCP server 名称', { icon: 2 }); return; }
-          apiSend('/mcp/servers', 'POST', body).then(function (res) {
-            layer.close(index);
-            layer.msg('已安装到 ' + TOOL_LABEL[tool] + ' · ' + (scope === 'global' ? '全局' : '项目'), { icon: 1 });
-            loadMcps();
-          }).catch(function (e) {
-            layer.msg(e.message, { icon: 2 });
-          });
         }
-      });
-    }).catch(function (e) {
-      layer.msg(e.message, { icon: 2 });
+        function syncCapability() {
+          var tool = document.getElementById('mi-tool').value;
+          var transports = (cap[tool] || ['stdio']);
+          document.getElementById('mi-transport').innerHTML = transports.map(function (t) {
+            var label = t === 'http' ? 'HTTP（streamable）' : (t === 'sse' ? 'SSE' : 'stdio');
+            return '<option value="' + t + '">' + label + '</option>';
+          }).join('');
+          syncTransport();
+          form.render(null, 'mcp-install-form');
+        }
+        function syncTransport() {
+          var t = document.getElementById('mi-transport').value;
+          document.getElementById('mi-stdio-fields').style.display = (t === 'stdio') ? '' : 'none';
+          document.getElementById('mi-url-fields').style.display = (t === 'stdio') ? 'none' : '';
+        }
+        document.getElementById('mi-tool').addEventListener('change', syncCapability);
+        document.getElementById('mi-transport').addEventListener('change', syncTransport);
+        var modeSeg = document.getElementById('mi-mode-seg');
+        if (modeSeg) {
+          modeSeg.addEventListener('click', function (e) {
+            var btn = e.target.closest('.seg-btn');
+            if (!btn) return;
+            this.querySelectorAll('.seg-btn').forEach(function (b) {
+              b.classList.toggle('seg-active', b === btn);
+            });
+            var json = btn.getAttribute('data-mode') === 'json';
+            document.getElementById('mi-form-fields').style.display = json ? 'none' : '';
+            document.getElementById('mi-json-fields').style.display = json ? '' : 'none';
+          });
+          // 按默认选中项（粘贴 JSON）初始化显隐
+          var activeBtn = modeSeg.querySelector('.seg-btn.seg-active');
+          var initJson = activeBtn && activeBtn.getAttribute('data-mode') === 'json';
+          document.getElementById('mi-form-fields').style.display = initJson ? 'none' : '';
+          document.getElementById('mi-json-fields').style.display = initJson ? '' : 'none';
+        }
+        syncCapability();
+        form.render(null, 'mcp-install-form');
+      },
+      yes: function (index) {
+        var tool = document.getElementById('mi-tool').value;
+        var modeBtn = document.querySelector('#mi-mode-seg .seg-btn.seg-active');
+        if (modeBtn && modeBtn.getAttribute('data-mode') === 'json') {
+          var jsonText = (document.getElementById('mi-json-input') || {}).value || '';
+          if (!jsonText.trim()) { layer.msg('请粘贴 MCP 配置 JSON', { icon: 2 }); return; }
+          apiSend('/mcp/servers/import', 'POST', { scope: 'global', tool: tool, project: null, config_json: jsonText })
+            .then(function (res) {
+              layer.close(index);
+              var parts = ['成功安装 ' + res.installed.length + ' 个'];
+              if (res.failed && res.failed.length) {
+                parts.push('失败 ' + res.failed.length + ' 个：' + res.failed.map(function (f) {
+                  return f.name + '（' + f.error + '）';
+                }).join('；'));
+              }
+              layer.msg(parts.join('，'), { icon: (res.failed && res.failed.length) ? 2 : 1, time: 4000 });
+              loadMcps();
+            }).catch(function (e) {
+              layer.msg(e.message, { icon: 2 });
+            });
+          return;
+        }
+        var transport = document.getElementById('mi-transport').value;
+        var name = (document.getElementById('mi-name') ? document.getElementById('mi-name').value : '') || document.querySelector('input[name="mi_name"]').value;
+        var body = {
+          scope: 'global',
+          tool: tool,
+          project: null,
+          name: (name || '').trim(),
+          transport: transport,
+          description: (document.querySelector('input[name="mi_description"]').value || '').trim()
+        };
+        if (transport === 'stdio') {
+          body.command = document.querySelector('input[name="mi_command"]').value || '';
+          body.args = document.querySelector('input[name="mi_args"]').value.split(/\s+/).filter(Boolean);
+          body.env = kvFromTextarea(document.querySelector('textarea[name="mi_env"]').value);
+        } else {
+          body.url = document.querySelector('input[name="mi_url"]').value || '';
+          body.headers = kvFromTextarea(document.querySelector('textarea[name="mi_headers"]').value);
+        }
+        if (!body.name) { layer.msg('请填写 MCP server 名称', { icon: 2 }); return; }
+        apiSend('/mcp/servers', 'POST', body).then(function (res) {
+          layer.close(index);
+          layer.msg('已安装到 ' + TOOL_LABEL[tool] + ' 全局配置', { icon: 1 });
+          loadMcps();
+        }).catch(function (e) {
+          layer.msg(e.message, { icon: 2 });
+        });
+      }
     });
   }
 

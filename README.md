@@ -58,8 +58,9 @@
 
 ### 安装 MCP 服务
 
-- 点「安装 MCP」可在任意端**从零新建** server：选择目标（Claude Code / Codex / dsh / ZCode × 全局/项目）+ 传输类型（stdio / http / sse，按目标端能力自动过滤，如 Codex 仅 stdio、dsh 无项目级）+ 填写命令/参数/环境变量或地址/请求头。
-- 安装走各端原生渲染与原子写（目标同名已存在会明确拒绝，可改用迁移或先删除），既有 server 与其它配置键原样保留；安装后立即出现在卡片列表。
+- 点「安装 MCP」可在任意应用**从零新建** server：选择目标应用（Claude Code / Codex / dsh / ZCode，写入该应用全局配置）+ 传输类型（stdio / http / sse，按目标端能力自动过滤，如 Codex 仅 stdio），填写命令/参数/环境变量或地址/请求头。
+- 也支持**粘贴 JSON 批量导入**：把已有的 MCP 配置片段直接粘进来（兼容「mcpServers」顶层、名称作键的 server 字典、单对象三种格式），一次装多个，逐条独立——单条失败（同名冲突、目标端不支持该传输等）不中断其余，并逐条报告成功/失败。
+- 安装走各端原生渲染与原子写（目标同名已存在会明确拒绝，可改用迁移或先删除），既有 server 与其它配置键原样保留；安装后立即出现在卡片列表，并自动匹配功能介绍。
 
 ### 跨端迁移与传输能力矩阵
 
@@ -196,7 +197,7 @@
 ### 自动化测试
 
 - `test_skill_manager.py`：四端 skill 发现聚合、跨端迁移、同名冲突回收、删除→恢复往返、30 天过期清理。
-- `test_mcp_manager.py`：四端 MCP 发现聚合、安装（同名/传输能力/项目级校验）、跨端迁移（含传输能力矩阵约束）、快照回收、env/headers 脱敏与 DPAPI 加密、功能介绍（自定义/配置/内置简介库/npm 联动）。
+- `test_mcp_manager.py`：四端 MCP 发现聚合、安装与 JSON 批量导入（同名/传输能力/项目级/格式兼容校验）、跨端迁移（含传输能力矩阵约束）、快照回收、env/headers 脱敏与 DPAPI 加密、功能介绍（自定义/配置/内置简介库/npm 联动）。
 - `test_switch.py` / `test_config_manager.py`：四端切换写入、协议约束、原子写入不留临时文件。
 - `test_crypto.py`：DPAPI 加解密往返、非法密文返回空。
 - `test_openai_proxy.py`：Anthropic ⇄ OpenAI 协议翻译正确性，含工具 schema 处理回归用例。

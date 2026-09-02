@@ -985,6 +985,76 @@ def test_api_create_route_wraps_valueerror(env):
     assert exc.value.status_code == 409
 
 
+# ---------------- JSON 导入安装 ----------------
+
+
+def test_parse_mcp_json_supports_multiple_formats():
+    """兼容三层输入：mcpServers 顶层 / server 字典 / 单对象。"""
+    a = mcp_manager.parse_mcp_json(
+        '{"mcpServers": {"s1": {"command": "npx", "args": ["-y", "@x/y"], "env": {"K": "v"}}}}'
+    )
+    assert a[0]["name"] == "s1"
+    assert a[0]["transport"] == "stdio"
+    assert a[0]["args"] == ["-y", "@x/y"]
+    assert a[0]["env"] == {"K": "v"}
+
+    b = mcp_manager.parse_mcp_json('{"amap-maps": {"command": "npx", "env": {"AMAP_MAPS_API_KEY": ""}}}')
+    assert b[0]["name"] == "amap-maps"
+    assert b[0]["env"] == {"AMAP_MAPS_API_KEY": ""}  # 空值保留（占位）
+
+    c = mcp_manager.parse_mcp_json('{"remote": {"type": "http", "url": "http://x:1/mcp", "headers": {"A": "1"}}}')
+    assert c[0]["transport"] == "http"
+    assert c[0]["headers"] == {"A": "1"}
+
+    # 非对象条目跳过
+    d = mcp_manager.parse_mcp_json('{"srv": {"command": "node"}, "note": "hello"}')
+    assert [s["name"] for s in d] == ["srv"]
+
+
+def test_parse_mcp_json_bad_input():
+    with pytest.raises(ValueError, match="JSON 解析失败"):
+        mcp_manager.parse_mcp_json("{not json")
+    with pytest.raises(ValueError, match="必须是 JSON 对象"):
+        mcp_manager.parse_mcp_json("[1,2]")
+    with pytest.raises(ValueError, match="未解析到任何"):
+        mcp_manager.parse_mcp_json('{"a": "b"}')
+
+
+def test_import_servers_batch_install_and_partial_failure(env):
+    """批量导入：全装成功；单条同名失败不中断其它。"""
+    env["claude_json"].write_text(json.dumps({"mcpServers": {"exists": {"command": "node"}}}), encoding="utf-8")
+    parsed = mcp_manager.parse_mcp_json(
+        '{"new-a": {"command": "npx", "args": ["-y", "@x/a"]},'
+        ' "exists": {"command": "npx"},'
+        ' "new-b": {"command": "python", "args": ["b.py"]}}'
+    )
+    result = mcp_manager.import_servers("global", "claude", None, parsed)
+    assert len(result["installed"]) == 2
+    assert {x["name"] for x in result["installed"]} == {"new-a", "new-b"}
+    assert len(result["failed"]) == 1
+    assert result["failed"][0]["name"] == "exists"
+    assert "已存在同名" in result["failed"][0]["error"]
+    # 实际写入三个
+    assert {s["name"] for s in mcp_manager.read_servers("global", "claude")} == {"exists", "new-a", "new-b"}
+
+
+def test_api_import_route(env):
+    body = schemas.McpImportIn(
+        scope="global", tool="zcode",
+        config_json='{"amap-maps": {"command": "npx", "args": ["-y", "@amap/amap-maps-mcp-server"], "env": {"AMAP_MAPS_API_KEY": ""}}}',
+    )
+    res = mcp_api.mcp_server_import(body)
+    assert len(res["installed"]) == 1
+    assert res["installed"][0]["name"] == "amap-maps"
+    raw = json.loads(env["zcode_cli"].read_text(encoding="utf-8"))
+    assert "amap-maps" in raw["mcp"]["servers"]
+
+    # 非法 JSON → 400
+    with pytest.raises(HTTPException) as exc:
+        mcp_api.mcp_server_import(schemas.McpImportIn(scope="global", tool="claude", config_json="nope"))
+    assert exc.value.status_code == 400
+
+
 def test_dsh_normalize_names_by_id_not_servername(env):
     """dsh server 命名取 id 去掉 mcp- 前缀，而非泛化的 serverName。
 

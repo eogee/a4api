@@ -608,6 +608,15 @@ body {
   color: #3d4044;
 }
 
+/* 修复 layui layer 在 type:1 内联内容时的渲染怪癖：关闭按钮被放进
+   .layui-layer-content 而非标题栏——把这类 setwin 视觉归位到标题栏右上
+   （标题栏固定 50px 高，content 从标题栏底部开始） */
+.layui-layer-content > .layui-layer-setwin {
+  position: absolute;
+  top: -48px;
+  right: 15px;
+}
+
 /* 弹窗内的开关（原生 Responses / 自定义） */
 .layui-layer .layui-form-switch {
   margin-top: 10px;
