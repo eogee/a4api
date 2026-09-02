@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import shutil
+import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -65,6 +66,159 @@ DASH_SCOPE_CAPABILITY = {
     "dsh": ("global",),
     "zcode": ("global", "project"),
 }
+
+# ---------------- MCP 简介知识库 ----------------
+# 卡片介绍的取数优先级：用户自定义 > 配置自带 description > 内置简介库
+# （离线、即时）> npm registry 自动查询（npx 类 server，结果缓存一天）。
+# 内置库覆盖常见 MCP server 的规范化名（server 名 / 包名尾段等）。
+
+_NPM_QUERY_TIMEOUT_SECS = 2.5
+_NPM_CACHE_FILENAME = "mcp_knowledge.json"
+_NPM_CACHE_TTL_DAYS = 1
+_PER_DISCOVER_NPM_LIMIT = 3  # 单次 discover 最多联网补查个数，防首次进入卡顿
+
+_BUILTIN_MCP_DESCRIPTIONS = {
+    "github": "GitHub 仓库、Issue、Pull Request 与代码审查管理",
+    "github-mcp-server": "GitHub 仓库、Issue、Pull Request 与代码审查管理",
+    "server-github": "GitHub 仓库、Issue、Pull Request 与代码审查管理",
+    "gitlab": "GitLab 项目、Issue、Merge Request 与 CI 流水线管理",
+    "git": "本地 Git 仓库操作：提交、分支、状态与日志查询",
+    "playwright": "浏览器自动化：网页导航、截图、DOM 交互与断言",
+    "puppeteer": "Chrome/Chromium 浏览器自动化：页面控制、截图与抓取",
+    "chrome-devtools": "Chrome DevTools 协议：浏览器调试、DOM/网络/性能检查",
+    "browser": "浏览器自动化与页面交互工具",
+    "open-websearch": "网络搜索集成：访问搜索引擎并返回实时结果",
+    "web-search": "网络搜索：查询网页并返回结果",
+    "search": "统一搜索：多引擎网页搜索工具",
+    "brave-search": "Brave Search API：实时网页搜索",
+    "duckduckgo": "DuckDuckGo 搜索与即时答",
+    "firecrawl": "网页抓取与爬取：转 Markdown、结构提取、站点地图",
+    "fetch": "抓取 URL 内容并转成便于读取的 Markdown",
+    "http": "HTTP 请求工具：支持 GET/POST 等并返回结构化结果",
+    "context7": "最新库文档检索：为依赖注入上下文",
+    "sequential-thinking": "思维链推理：分步推进复杂问题分析",
+    "memory": "知识持久化记忆：跨会话保存自定义条目",
+    "server-memory": "知识持久化记忆：跨会话保存自定义条目",
+    "filesystem": "本地文件系统访问：读、写、移动与搜索文件",
+    "server-filesystem": "本地文件系统访问：读、写、移动与搜索文件",
+    "postgres": "PostgreSQL 查询：只读 SQL 执行与 schema 浏览",
+    "postgresql": "PostgreSQL 查询：只读 SQL 执行与 schema 浏览",
+    "sqlite": "SQLite 数据库查询与执行 SQL",
+    "mysql": "MySQL 数据库查询与 SQL 执行",
+    "mongodb": "MongoDB 数据查询与操作",
+    "redis": "Redis 键值操作：读写与命令执行",
+    "slack": "Slack 消息收发：读频道、发消息、查用户",
+    "notion": "Notion 页面与数据库管理",
+    "google-maps": "Google Maps 查询：地点、路线与地理编码",
+    "docker": "Docker 容器与镜像管理",
+    "kubernetes": "Kubernetes 集群资源管理",
+    "vscode": "VS Code 控制：打开文件、执行命令与编辑器交互",
+    "desktop-commander": "桌面进程与命令行工具控制",
+    "time": "当前时间与日期查询",
+    "everything": "本地全盘文件搜索（Everything）",
+    "sentinel": "基于 WebSearch/SearXNG 的搜索接口",
+}
+
+
+def _npm_pkg_from(command, args):
+    """从 npx 类命令解析包名：command 为 npx/npx.cmd 时取 args 中第一个非选项词。"""
+    if str(command or "").strip().lower() not in ("npx", "npx.cmd"):
+        return None
+    for a in (args or []):
+        s = str(a)
+        if s.startswith("-"):
+            continue
+        return s
+    return None
+
+
+def _kb_candidates(name, command, args):
+    """生成简介查询候选键集合（server 名 / 命令 / 包名及其去前后缀变体）。"""
+    cands: set[str] = set()
+
+    def add(s):
+        s = str(s or "").strip().lower()
+        if s:
+            cands.add(s)
+
+    add(name)
+    add(command)
+    pkg = _npm_pkg_from(command, args)
+    add(pkg)
+    if pkg:
+        add(pkg.rsplit("/", 1)[-1])
+    for base in {str(name or "").strip().lower(), str(command or "").strip().lower(), str(pkg or "").strip().lower()}:
+        if not base:
+            continue
+        for pref in ("mcp-", "mcp-server-", "server-", "mcp_"):
+            if base.startswith(pref):
+                add(base[len(pref):])
+        for suf in ("-server", "_server", "-mcp"):
+            if base.endswith(suf):
+                add(base[: -len(suf)])
+    return cands
+
+
+def _npm_knowledge_cache() -> dict:
+    path = get_data_dir() / _NPM_CACHE_FILENAME
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_npm_knowledge_cache(data: dict) -> None:
+    path = get_data_dir() / _NPM_CACHE_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def fetch_npm_description(pkg: str) -> str | None:
+    """查询 npm registry 的包简介（缓存一天）；网络失败静默返回 None。"""
+    cache = _npm_knowledge_cache()
+    entry = cache.get(pkg)
+    if isinstance(entry, dict) and entry.get("desc"):
+        try:
+            ts = datetime.fromisoformat(entry.get("ts", ""))
+            if datetime.now() - ts < timedelta(days=_NPM_CACHE_TTL_DAYS):
+                return entry["desc"]
+        except (ValueError, TypeError):
+            pass
+    desc = None
+    try:
+        with urllib.request.urlopen(
+            f"https://registry.npmjs.org/{pkg}", timeout=_NPM_QUERY_TIMEOUT_SECS
+        ) as resp:
+            meta = json.loads(resp.read(65536).decode("utf-8", "replace"))
+        desc = str(meta.get("description") or "").strip() or None
+    except Exception:
+        desc = None
+    if desc:
+        cache[pkg] = {"desc": desc, "ts": datetime.now().isoformat()}
+        _save_npm_knowledge_cache(cache)
+    return desc
+
+
+def auto_description(name, command, args, npm_budget=None) -> tuple:
+    """自动获取 server 简介：内置库优先，其次 npm registry。
+
+    返回 (text, source)，source ∈ {"builtin", "npm", ""}。
+    npm_budget 为共享配额 dict（{"left": n}），控制单次 discover 联网补查数。
+    """
+    for cand in _kb_candidates(name, command, args):
+        if cand in _BUILTIN_MCP_DESCRIPTIONS:
+            return _BUILTIN_MCP_DESCRIPTIONS[cand], "builtin"
+    pkg = _npm_pkg_from(command, args)
+    if pkg and (npm_budget is None or npm_budget.get("left", 0) > 0):
+        if isinstance(npm_budget, dict) and npm_budget.get("left", 0) > 0:
+            npm_budget["left"] -= 1
+        desc = fetch_npm_description(pkg)
+        if desc:
+            return desc, "npm"
+    return "", ""
 
 MASK = "••••••"
 
@@ -176,6 +330,7 @@ def normalize_claude(name: str, raw: dict, path: Path, tool: str, scope: str, pr
         "url": raw.get("url"),
         "headers": dict(raw.get("headers") or {}) if isinstance(raw.get("headers"), dict) else {},
         "cwd": None,
+        "description": str(raw.get("description") or "").strip(),
         "tool": tool,
         "scope": scope,
         "project": project,
@@ -186,7 +341,7 @@ def normalize_claude(name: str, raw: dict, path: Path, tool: str, scope: str, pr
 
 
 def normalize_codex(name: str, raw: dict, path: Path, tool: str, scope: str, project: str | None) -> dict:
-    extra_keys = ("command", "args", "env", "description")
+    extra_keys = ("command", "args", "env")
     server = {
         "name": name,
         "transport": "stdio",
@@ -196,6 +351,7 @@ def normalize_codex(name: str, raw: dict, path: Path, tool: str, scope: str, pro
         "url": None,
         "headers": {},
         "cwd": None,
+        "description": str(raw.get("description") or "").strip(),
         "tool": tool,
         "scope": scope,
         "project": project,
@@ -214,8 +370,19 @@ def normalize_dsh(entry: dict, path: Path, tool: str, scope: str, project: str |
         transport = "http"
     elif transport != "stdio":
         transport = "stdio"
+    # 名称：dsh 条目 id 惯例为 mcp-<name>，优先以去掉前缀的 id 命名；
+    # serverName 可能是泛化别名（如 id=mcp-open-websearch、serverName=web），
+    # 直接用它会在管理界面认不出 server。id 缺失时回退 serverName。
+    sid = str(entry.get("id") or "").strip()
+    if sid.startswith("mcp-"):
+        name = sid[len("mcp-"):]
+    elif sid:
+        name = sid
+    else:
+        name = str(config.get("serverName") or "").strip()
+    name = name or sanitize_name(sid) or "mcp-server"
     server = {
-        "name": str(config.get("serverName") or "").strip() or sanitize_name(str(entry.get("id") or "mcp-server")),
+        "name": name,
         "transport": transport,
         "command": config.get("command"),
         "args": list(config.get("args") or []),
@@ -223,6 +390,7 @@ def normalize_dsh(entry: dict, path: Path, tool: str, scope: str, project: str |
         "url": config.get("url"),
         "headers": dict(config.get("headers") or {}) if isinstance(config.get("headers"), dict) else {},
         "cwd": config.get("cwd"),
+        "description": str(config.get("description") or "").strip(),
         "tool": tool,
         "scope": scope,
         "project": project,
@@ -258,6 +426,8 @@ def render_claude(server: dict) -> dict:
             out["url"] = server["url"]
         if server.get("headers"):
             out["headers"] = dict(server["headers"])
+    if server.get("description"):
+        out["description"] = server["description"]
     return out
 
 
@@ -269,6 +439,8 @@ def render_codex(server: dict) -> dict:
         out["args"] = list(server["args"])
     if server.get("env"):
         out["env"] = dict(server["env"])
+    if server.get("description"):
+        out["description"] = server["description"]
     for k, v in (server.get("extra") or {}).items():
         out[k] = v
     return out
@@ -292,6 +464,8 @@ def render_dsh(server: dict) -> dict:
             config["env"] = dict(server["env"])
         if server.get("cwd"):
             config["cwd"] = server["cwd"]
+    if server.get("description"):
+        config["description"] = server["description"]
     return {
         "id": f"{DSH_MCP_ENTRY_PREFIX}{sanitize_name(server['name'])}",
         "name": DSH_MCP_CLIENT_PLUGIN,
@@ -305,6 +479,7 @@ def normalize_zcode(name: str, raw: dict, path: Path, tool: str, scope: str, pro
     zcode 的 type 可省略：有 command 推断 stdio、有 url 推断 http/sse；
     配置 schema 严格（未知键会让 server 被丢弃），额外键只保留
     enabled / timeoutMs（写回时白名单回填，不污染目标配置）。
+    description 仅读取用于展示，写回时不输出（zcode 不认该键）。
     """
     typ = str(raw.get("type") or "").lower()
     if typ not in ("stdio", "sse", "http"):
@@ -318,6 +493,7 @@ def normalize_zcode(name: str, raw: dict, path: Path, tool: str, scope: str, pro
         "url": raw.get("url"),
         "headers": dict(raw.get("headers") or {}) if isinstance(raw.get("headers"), dict) else {},
         "cwd": raw.get("cwd"),
+        "description": str(raw.get("description") or "").strip(),
         "tool": tool,
         "scope": scope,
         "project": project,
@@ -602,12 +778,49 @@ def write_servers(scope: str, tool: str, project: str | None, servers: list[dict
 # ---------------- 发现 / 聚合 ----------------
 
 
-def _aggregate(entries: list[dict], mask: bool = False) -> list[dict]:
+def _mcp_descriptions_file() -> Path:
+    """用户自定义 MCP 描述存储（按 server 名，跨端共享）。"""
+    return get_data_dir() / "mcp_descriptions.json"
+
+
+def load_mcp_descriptions() -> dict:
+    """读取用户自定义描述表 {server_name: description}；无/损坏返回空。"""
+    path = _mcp_descriptions_file()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_mcp_description(name: str, description: str) -> dict:
+    """保存（或清空）单个 server 的自定义描述，返回最新描述表。"""
+    data = load_mcp_descriptions()
+    text = (description or "").strip()
+    if text:
+        data[name] = text
+    else:
+        data.pop(name, None)
+    path = _mcp_descriptions_file()
+    _atomic_write(path, json.dumps(data, ensure_ascii=False, indent=2))
+    return data
+
+
+def _aggregate(entries: list[dict], mask: bool = False, descriptions: dict | None = None) -> list[dict]:
     """按 name 聚合并标注端数/重复，与 skill 视图保持一致。
 
     mask=True 时 copies 中的 env/headers 值一律脱敏（仅回键名），
     用于 discover 响应——明文只在迁移内部从源文件直读，不经 API。
+
+    descriptions：用户自定义描述表；group.description 按优先级取
+    「自定义 > 配置自带 > 内置简介库 > npm 注册表」，description_source
+    标识来源（custom/config/builtin/npm/empty），custom_description 供前端
+    编辑回填，config_description 保留配置文件自带的描述。
     """
+    custom = descriptions if isinstance(descriptions, dict) else {}
+    npm_budget = {"left": _PER_DISCOVER_NPM_LIMIT}
     groups: dict[str, list[dict]] = {}
     order: list[str] = []
     for entry in entries:
@@ -621,6 +834,16 @@ def _aggregate(entries: list[dict], mask: bool = False) -> list[dict]:
         copies = groups[name]
         ends = sorted({c["tool"] for c in copies}, key=TOOLS.index)
         first = copies[0]
+        config_desc = str(first.get("description") or "")
+        if custom.get(name):
+            text, source = custom[name], "custom"
+        elif config_desc:
+            text, source = config_desc, "config"
+        else:
+            text, source = auto_description(
+                name, first.get("command"), first.get("args"), npm_budget
+            )
+            source = source or "empty"
         result.append(
             {
                 "name": name,
@@ -628,6 +851,10 @@ def _aggregate(entries: list[dict], mask: bool = False) -> list[dict]:
                 "end_count": len(ends),
                 "duplicate": len(copies) > 1,
                 "ends": ends,
+                "description": text,
+                "description_source": source,
+                "custom_description": str(custom.get(name) or ""),
+                "config_description": config_desc,
                 "copies": [_mask_server(c) for c in copies] if mask else copies,
             }
         )
@@ -645,6 +872,7 @@ def _mask_server(server: dict) -> dict:
 
 def discover() -> dict:
     """全量发现：全局四端 + 各项目（claude/codex/zcode），按 name 聚合。"""
+    custom = load_mcp_descriptions()
     global_entries: list[dict] = []
     for tool in TOOLS:
         if tool == "dsh":
@@ -663,12 +891,12 @@ def discover() -> dict:
             {
                 "project": proj["project"],
                 "root": str(proj["root"]),
-                "servers": _aggregate(entries, mask=True),
+                "servers": _aggregate(entries, mask=True, descriptions=custom),
             }
         )
 
     return {
-        "global": _aggregate(global_entries, mask=True),
+        "global": _aggregate(global_entries, mask=True, descriptions=custom),
         "projects": projects_out,
         "roots": {
             "claude": str(claude_mcp_path()),
@@ -751,6 +979,7 @@ def _snapshot_payload(server: dict) -> dict:
         "args": list(server.get("args") or []),
         "url": server.get("url"),
         "cwd": server.get("cwd"),
+        "description": server.get("description") or "",
         "tool": server["tool"],
         "scope": server["scope"],
         "project": server.get("project"),
@@ -770,6 +999,7 @@ def _decrypt_snapshot(payload: dict) -> dict:
         "url": payload.get("url"),
         "headers": {},
         "cwd": payload.get("cwd"),
+        "description": payload.get("description") or "",
         "tool": payload.get("tool", ""),
         "scope": payload.get("scope", "global"),
         "project": payload.get("project"),
@@ -892,6 +1122,63 @@ def delete_permanent(db, trash_id: int) -> dict:
     db.delete(item)
     db.commit()
     return {"deleted_permanently": True, "name": item.server_name}
+
+
+# ---------------- 安装（新建 server） ----------------
+
+def create_server(scope: str, tool: str, project: str | None, fields: dict) -> dict:
+    """向指定端新建（安装）一个 MCP server；同名已存在时报错。
+
+    fields 为已校验的提交字段（name / transport / command / args / env /
+    url / headers / cwd / description）。安装沿用各端 render 与原子写：
+    先备份目标配置文件，只增不删既有 server，敏感字段写入配置（无可避免，
+    与迁移一致），返回脱敏后的 server 详情。
+    """
+    if tool not in TOOLS:
+        raise ValueError(f"未知工具：{tool}")
+    if scope not in ("global", "project"):
+        raise ValueError(f"未知 scope：{scope}")
+    if scope == "project" and tool == "dsh":
+        raise ValueError("dsh 端不支持项目级 MCP 配置")
+    path = mcp_config_file(scope, tool, project)  # 位置合法性由该函数兜底
+
+    name = str(fields.get("name") or "").strip()
+    if not name:
+        raise ValueError("缺少 MCP server 名称")
+    transport = str(fields.get("transport") or "stdio").lower()
+    if transport not in TRANSPORT_CAPABILITY[tool]:
+        raise ValueError(f"{TOOL_LABELS[tool]} 端不支持 {transport} 传输")
+    if transport == "stdio":
+        if not str(fields.get("command") or "").strip():
+            raise ValueError("stdio 传输需要填写启动命令（command）")
+    else:  # http / sse
+        if not str(fields.get("url") or "").strip():
+            raise ValueError(f"{transport} 传输需要填写服务地址（url）")
+
+    existing = read_servers(scope, tool, project)
+    if any(s["name"].lower() == name.lower() for s in existing):
+        raise ValueError(f"目标端已存在同名 server：{name}（可直接迁移，或先删除旧条目）")
+
+    server = {
+        "name": name,
+        "transport": transport,
+        "command": str(fields.get("command") or "").strip() or None,
+        "args": [str(a) for a in (fields.get("args") or []) if str(a).strip()],
+        "env": {str(k): str(v) for k, v in (fields.get("env") or {}).items() if str(k).strip()},
+        "url": str(fields.get("url") or "").strip() or None,
+        "headers": {str(k): str(v) for k, v in (fields.get("headers") or {}).items() if str(k).strip()},
+        "cwd": str(fields.get("cwd") or "").strip() or None,
+        "description": str(fields.get("description") or "").strip(),
+        "tool": tool,
+        "scope": scope,
+        "project": project,
+        "path": str(path),
+        "extra": {},
+    }
+    existing.append(server)
+    write_servers(scope, tool, project, existing)
+    logger.info("已安装 MCP server「%s」到 %s · %s（%s）", name, TOOL_LABELS[tool], scope, transport)
+    return _mask_server(server)
 
 
 # ---------------- 迁移 ----------------

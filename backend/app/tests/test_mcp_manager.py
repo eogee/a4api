@@ -650,3 +650,370 @@ def test_api_delete_wraps_valueerror(env):
             schemas.McpServerRefIn(scope="global", tool="claude", name="ghost"), None
         )
     assert exc.value.status_code == 400
+
+
+# ---------------- MCP 功能介绍（description） ----------------
+
+
+def test_normalize_reads_config_description(env):
+    """四端配置自带的 description 均被归一读取。"""
+    env["claude_json"].write_text(
+        json.dumps({"mcpServers": {"git": {"command": "npx", "description": "Git 仓库管理"}}}),
+        encoding="utf-8",
+    )
+    env["codex_toml"].write_text(
+        '[mcp_servers."db"]\ncommand = "node"\ndescription = "数据库查询"\n', encoding="utf-8"
+    )
+    make_zcode_global(env, "web", {"command": "node", "description": "Web 抓取"})
+    make_dsh_patch(
+        env,
+        [
+            {
+                "name": "srv",
+                "transport": "stdio",
+                "command": "node",
+                "description": "Dsh 服务",
+                "args": [],
+                "env": {},
+                "url": None,
+                "headers": {},
+                "cwd": None,
+            }
+        ],
+    )
+
+    assert mcp_manager.read_servers("global", "claude")[0]["description"] == "Git 仓库管理"
+    assert mcp_manager.read_servers("global", "codex")[0]["description"] == "数据库查询"
+    assert mcp_manager.read_servers("global", "zcode")[0]["description"] == "Web 抓取"
+    assert mcp_manager.read_servers("global", "dsh")[0]["description"] == "Dsh 服务"
+
+
+def test_discover_description_custom_override(env):
+    """discover 分组展示 description：自定义覆盖配置描述；custom/config 字段供前端回填。"""
+    env["claude_json"].write_text(
+        json.dumps({"mcpServers": {"git": {"command": "npx", "description": "配置自带描述"}}}),
+        encoding="utf-8",
+    )
+
+    data = mcp_manager.discover()
+    g = next(x for x in data["global"] if x["name"] == "git")
+    assert g["description"] == "配置自带描述"
+    assert g["custom_description"] == ""
+    assert g["config_description"] == "配置自带描述"
+
+    # 自定义覆盖
+    mcp_manager.save_mcp_description("git", "我的自定义介绍")
+    data = mcp_manager.discover()
+    g = next(x for x in data["global"] if x["name"] == "git")
+    assert g["description"] == "我的自定义介绍"
+    assert g["custom_description"] == "我的自定义介绍"
+    assert g["config_description"] == "配置自带描述"
+
+    # 清空自定义后回落配置描述
+    mcp_manager.save_mcp_description("git", "")
+    data = mcp_manager.discover()
+    g = next(x for x in data["global"] if x["name"] == "git")
+    assert g["description"] == "配置自带描述"
+    assert g["custom_description"] == ""
+
+
+def test_migrate_keeps_description_roundtrip(env, db):
+    """迁移保留 description；zcode 端渲染时剔除 description（严格 schema 不写该键）。"""
+    env["claude_json"].write_text(
+        json.dumps(
+            {"mcpServers": {"git": {"command": "npx", "args": ["-y", "@git/mcp"], "description": "Git 管理"}}}
+        ),
+        encoding="utf-8",
+    )
+    result = mcp_manager.migrate(
+        db,
+        [{"scope": "global", "tool": "claude", "project": None, "name": "git"}],
+        [
+            {"scope": "global", "tool": "codex", "project": None},
+            {"scope": "global", "tool": "dsh", "project": None},
+            {"scope": "global", "tool": "zcode", "project": None},
+        ],
+    )
+    assert result["migrated"] == 3
+    assert mcp_manager.read_servers("global", "codex")[0]["description"] == "Git 管理"
+    assert mcp_manager.read_servers("global", "dsh")[0]["description"] == "Git 管理"
+    # zcode 严格 schema 不写 description 键：读回为空属设计使然（写了会被丢弃整个
+    # server），展示层靠用户自定义描述表（save_mcp_description）补充
+    assert mcp_manager.read_servers("global", "zcode")[0]["description"] == ""
+    raw = json.loads(env["zcode_cli"].read_text(encoding="utf-8"))
+    assert "description" not in raw["mcp"]["servers"]["git"]
+
+
+def test_trash_restore_keeps_description(env, db):
+    """删除 → 回收站 → 恢复，description 随快照保留。"""
+    env["claude_json"].write_text(
+        json.dumps({"mcpServers": {"srv": {"command": "node", "description": "描述"}}}),
+        encoding="utf-8",
+    )
+    deleted = mcp_manager.delete_to_trash(
+        db, {"scope": "global", "tool": "claude", "project": None, "name": "srv"}
+    )
+    assert deleted["deleted"] is True
+    item = mcp_manager.list_trash(db)["items"][0]
+    mcp_manager.restore_from_trash(db, item["id"])
+    assert mcp_manager.read_servers("global", "claude")[0]["description"] == "描述"
+
+
+def test_api_save_description_roundtrip(env):
+    """API 层：PUT 保存、空串删除、GET 全量。"""
+    make_claude_global(env, "srv2")
+    mcp_api.mcp_description_save(schemas.McpDescriptionIn(name="srv2", description="功能说明"))
+    assert mcp_api.mcp_descriptions_list() == {"srv2": "功能说明"}
+    mcp_api.mcp_description_save(schemas.McpDescriptionIn(name="srv2", description="  "))
+    assert mcp_api.mcp_descriptions_list() == {}
+
+
+# ---------------- 自动简介（内置库 / npm 联动） ----------------
+
+
+def test_builtin_description_matches_common_names():
+    """常见 server 名/包名自动命中内置简介，无需手敲。"""
+    cases = [
+        ("github", None, None),
+        ("github-mcp-server", None, None),
+        ("open-websearch", None, None),
+        ("playwright", None, None),
+        ("chrome-devtools", None, None),
+        ("postgres", None, None),
+        ("unknown-xyz", None, None),
+    ]
+    for name, cmd, args in cases:
+        text, source = mcp_manager.auto_description(name, cmd, args)
+        if name == "unknown-xyz":
+            assert source == ""
+        else:
+            assert source == "builtin"
+            assert text
+
+
+def test_builtin_matches_npx_package_tail():
+    """npx 包名尾段也能命中内置库（如 @modelcontextprotocol/server-github）。"""
+    text, source = mcp_manager.auto_description(
+        "zzz-arbitrary-name", "npx", ["-y", "@modelcontextprotocol/server-github"]
+    )
+    assert source == "builtin"
+    assert "GitHub" in text
+
+
+def test_description_priority_custom_over_config_over_builtin(env):
+    """取数优先级：自定义 > 配置自带 > 内置简介。"""
+    env["claude_json"].write_text(
+        json.dumps(
+            {"mcpServers": {
+                "github": {"command": "npx", "description": "配置自带简介"},
+                "playwright": {"command": "python", "args": ["x.py"]},
+            }}
+        ),
+        encoding="utf-8",
+    )
+    data = mcp_manager.discover()
+    groups = {g["name"]: g for g in data["global"]}
+    # 配置自带优先于内置
+    assert groups["github"]["description"] == "配置自带简介"
+    assert groups["github"]["description_source"] == "config"
+    # 无配置无自定义 → 内置库
+    assert groups["playwright"]["description_source"] == "builtin"
+    assert groups["playwright"]["description"]
+    # 自定义最优先
+    mcp_manager.save_mcp_description("github", "我的 GitHub 介绍")
+    data = mcp_manager.discover()
+    groups = {g["name"]: g for g in data["global"]}
+    assert groups["github"]["description"] == "我的 GitHub 介绍"
+    assert groups["github"]["description_source"] == "custom"
+
+
+def test_npm_description_fetched_and_cached(env, monkeypatch):
+    """未知 npx 包自动查 npm registry 简介并入缓存。"""
+
+    class FakeResp:
+        def read(self, n=-1):
+            return b'{"name": "mystery-mcp", "description": "A mystery MCP server"}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    calls = {"n": 0}
+
+    def fake_urlopen(url, timeout=None):
+        calls["n"] += 1
+        assert "registry.npmjs.org" in url
+        return FakeResp()
+
+    monkeypatch.setattr(mcp_manager.urllib.request, "urlopen", fake_urlopen)
+    text, source = mcp_manager.auto_description(
+        "zzz", "npx", ["-y", "mystery-mcp"], {"left": 5}
+    )
+    assert source == "npm"
+    assert text == "A mystery MCP server"
+    # 二次调用命中缓存，不再联网
+    text2, source2 = mcp_manager.auto_description(
+        "zzz", "npx", ["-y", "mystery-mcp"], {"left": 5}
+    )
+    assert source2 == "npm"
+    assert text2 == "A mystery MCP server"
+    assert calls["n"] == 1
+
+
+def test_npm_failure_silently_empty(env, monkeypatch):
+    """npm 查询失败静默返回空简介，不打断 discover。"""
+
+    def boom(url, timeout=None):
+        raise OSError("network down")
+
+    monkeypatch.setattr(mcp_manager.urllib.request, "urlopen", boom)
+    text, source = mcp_manager.auto_description(
+        "zzz", "npx", ["-y", "no-such-pkg-xyz"], {"left": 5}
+    )
+    assert source == ""
+    assert text == ""
+
+
+# ---------------- MCP 安装（新建 server） ----------------
+
+
+def test_create_server_stdio_to_claude_global(env):
+    """向 Claude 全局安装 stdio server：写入配置、保留其它键、可被发现。"""
+    env["claude_json"].write_text(
+        json.dumps({"mcpServers": {"old": {"command": "node"}}, "topKey": "keep"}),
+        encoding="utf-8",
+    )
+    created = mcp_manager.create_server(
+        "global", "claude", None,
+        {"name": "postgres", "transport": "stdio", "command": "npx",
+         "args": ["-y", "@modelcontextprotocol/server-postgres"],
+         "env": {"PGHOST": "127.0.0.1"}, "description": "PostgreSQL 查询"},
+    )
+    assert created["name"] == "postgres"
+    assert created["env"] == {"PGHOST": mcp_manager.MASK}  # 返回脱敏
+
+    raw = json.loads(env["claude_json"].read_text(encoding="utf-8"))
+    assert raw["topKey"] == "keep"  # 其它顶层键保留
+    assert "old" in raw["mcpServers"]  # 既有 server 不丢
+    srv = raw["mcpServers"]["postgres"]
+    assert srv["command"] == "npx.cmd" if mcp_manager._portable_command("npx") == "npx.cmd" else srv["command"] == "npx"
+    assert srv["description"] == "PostgreSQL 查询"
+    assert srv["env"] == {"PGHOST": "127.0.0.1"}
+
+    found = mcp_manager.read_servers("global", "claude")
+    assert {s["name"] for s in found} == {"old", "postgres"}
+
+
+def test_create_server_http_to_zcode_no_description_key(env):
+    """http server 安装到 zcode：只写规范键（严格 schema 不写 description）。"""
+    created = mcp_manager.create_server(
+        "global", "zcode", None,
+        {"name": "remote", "transport": "http", "url": "http://localhost:8787/mcp",
+         "headers": {"Authorization": "Bearer t"}, "description": "远程服务"},
+    )
+    assert created["transport"] == "http"
+    raw = json.loads(env["zcode_cli"].read_text(encoding="utf-8"))
+    srv = raw["mcp"]["servers"]["remote"]
+    assert srv["type"] == "http"
+    assert srv["url"] == "http://localhost:8787/mcp"
+    assert srv["headers"] == {"Authorization": "Bearer t"}
+    assert "description" not in srv
+
+
+def test_create_server_to_project_scope(env):
+    """安装到项目级（claude .mcp.json / zcode .zcode/config.json）。"""
+    proj = make_project(env, "proj-x")
+    created = mcp_manager.create_server(
+        "project", "claude", "proj-x",
+        {"name": "deploy-db", "transport": "stdio", "command": "node", "args": ["db.js"]},
+    )
+    assert created["scope"] == "project"
+    mcp = proj / ".mcp.json"
+    assert json.loads(mcp.read_text(encoding="utf-8"))["mcpServers"]["deploy-db"]["command"] == "node"
+
+
+def test_create_server_rejects_duplicate(env):
+    make_claude_global(env, "dup")
+    with pytest.raises(ValueError, match="已存在同名"):
+        mcp_manager.create_server(
+            "global", "claude", None,
+            {"name": "dup", "transport": "stdio", "command": "npx"},
+        )
+
+
+def test_create_server_rejects_unsupported_transport_for_tool(env):
+    """传输能力矩阵：codex 仅 stdio，http 安装被拒。"""
+    with pytest.raises(ValueError, match="不支持 http 传输"):
+        mcp_manager.create_server(
+            "global", "codex", None,
+            {"name": "x", "transport": "http", "url": "http://x:1/mcp"},
+        )
+
+
+def test_create_server_rejects_dsh_project(env):
+    with pytest.raises(ValueError, match="项目级"):
+        mcp_manager.create_server(
+            "project", "dsh", "proj-y",
+            {"name": "x", "transport": "stdio", "command": "node"},
+        )
+
+
+def test_create_server_requires_command_or_url(env):
+    with pytest.raises(ValueError, match="启动命令"):
+        mcp_manager.create_server(
+            "global", "claude", None,
+            {"name": "x", "transport": "stdio", "command": ""},
+        )
+    with pytest.raises(ValueError, match="服务地址"):
+        mcp_manager.create_server(
+            "global", "zcode", None,
+            {"name": "x", "transport": "sse", "url": ""},
+        )
+
+
+def test_api_create_route_wraps_valueerror(env):
+    body = schemas.McpServerCreate(
+        scope="global", tool="claude", name="api-srv",
+        transport="stdio", command="npx",
+    )
+    created = mcp_api.mcp_server_create(body)
+    assert created["name"] == "api-srv"
+    with pytest.raises(HTTPException) as exc:
+        mcp_api.mcp_server_create(body)  # 同名
+    assert exc.value.status_code == 409
+
+
+def test_dsh_normalize_names_by_id_not_servername(env):
+    """dsh server 命名取 id 去掉 mcp- 前缀，而非泛化的 serverName。
+
+    回归：dsh 条目 `id: mcp-open-websearch` + `serverName: web` 时，
+    旧逻辑显示为「web」，用户在管理界面认不出它就是 open-websearch。
+    """
+    import yaml
+
+    entries = yaml.safe_load(TEST_PATCH)
+    entries.append(
+        {
+            "insert": [
+                {
+                    "id": "mcp-open-websearch",
+                    "name": "@deepseek-ai/dsh-mcp-client",
+                    "config": {"serverName": "web", "command": "node", "transport": "stdio"},
+                }
+            ]
+        }
+    )
+    env["dsh_patch"].write_text(
+        yaml.safe_dump(entries, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    servers = mcp_manager.read_servers("global", "dsh")
+    assert {s["name"] for s in servers} == {"open-websearch"}
+    assert servers[0]["command"] == "node"
+    # round-trip：写回后 id 还原为 mcp-open-websearch
+    mcp_manager.write_servers("global", "dsh", None, servers)
+    entries2 = yaml.safe_load(env["dsh_patch"].read_text(encoding="utf-8"))
+    items = [i for e in entries2 if isinstance(e, dict) for i in (e.get("insert") or [])]
+    managed = [i for i in items if i.get("name") == "@deepseek-ai/dsh-mcp-client"]
+    assert managed[0]["id"] == "mcp-open-websearch"

@@ -5,7 +5,7 @@
 | 能力 | 说明 |
 |---|---|
 | **技能管理** | 四端全局/项目级 skill 自动发现、聚合标注、跨端迁移、回收站恢复，一键把项目 skill 补齐到所有缺失的端 |
-| **MCP 管理** | 四端 MCP server 自动发现、跨端迁移（按传输能力矩阵校验）、快照回收站，密钥全程脱敏/加密 |
+| **MCP 管理** | 四端 MCP server 自动发现与**一键安装**、跨端迁移（按传输能力矩阵校验）、快照回收站、自动/自定义**功能介绍**，密钥全程脱敏/加密 |
 | **API 切换** | 四端不同服务商、模型、API Key 一键切换，配置自动备份、原子写入，密钥 DPAPI 加密存储 |
 
 ---
@@ -53,7 +53,13 @@
 
 - 自动发现四端全局与项目级 MCP server，同名 server 跨端聚合标注（「已在 N 端存在」）。
 - 详情中 `env` / `headers` **一律脱敏**（只回显键名），API 永不回传明文密钥。
+- 每张卡片显示该 server 的**功能介绍**：自动识别常用 server（内置简介库 + npx 包实时查询 npm registry，均有缓存与失败兜底），也支持点「介绍」手工维护说明（本地持久化、跨端共享、留空即清除）。
 - 项目级自动识别：Claude Code `.mcp.json`、Codex `.codex/config.toml`、ZCode `.zcode/config.json`。
+
+### 安装 MCP 服务
+
+- 点「安装 MCP」可在任意端**从零新建** server：选择目标（Claude Code / Codex / dsh / ZCode × 全局/项目）+ 传输类型（stdio / http / sse，按目标端能力自动过滤，如 Codex 仅 stdio、dsh 无项目级）+ 填写命令/参数/环境变量或地址/请求头。
+- 安装走各端原生渲染与原子写（目标同名已存在会明确拒绝，可改用迁移或先删除），既有 server 与其它配置键原样保留；安装后立即出现在卡片列表。
 
 ### 跨端迁移与传输能力矩阵
 
@@ -190,7 +196,7 @@
 ### 自动化测试
 
 - `test_skill_manager.py`：四端 skill 发现聚合、跨端迁移、同名冲突回收、删除→恢复往返、30 天过期清理。
-- `test_mcp_manager.py`：四端 MCP 发现聚合、跨端迁移（含传输能力矩阵约束）、快照回收、env/headers 脱敏与 DPAPI 加密。
+- `test_mcp_manager.py`：四端 MCP 发现聚合、安装（同名/传输能力/项目级校验）、跨端迁移（含传输能力矩阵约束）、快照回收、env/headers 脱敏与 DPAPI 加密、功能介绍（自定义/配置/内置简介库/npm 联动）。
 - `test_switch.py` / `test_config_manager.py`：四端切换写入、协议约束、原子写入不留临时文件。
 - `test_crypto.py`：DPAPI 加解密往返、非法密文返回空。
 - `test_openai_proxy.py`：Anthropic ⇄ OpenAI 协议翻译正确性，含工具 schema 处理回归用例。

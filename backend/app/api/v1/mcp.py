@@ -82,3 +82,34 @@ def mcp_trash_purge_one(trash_id: int, db: Session = Depends(get_db)):
         return mcp_manager.delete_permanent(db, trash_id)
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+@router.get("/mcp/descriptions")
+def mcp_descriptions_list():
+    """用户自定义 MCP 功能介绍表 {server_name: description}。"""
+    return mcp_manager.load_mcp_descriptions()
+
+
+@router.put("/mcp/descriptions")
+def mcp_description_save(body: schemas.McpDescriptionIn):
+    """保存/清空某个 server 的功能介绍；description 空串删除。返回最新表。"""
+    return mcp_manager.save_mcp_description(body.name, body.description)
+
+
+@router.get("/mcp/projects")
+def mcp_projects_list():
+    """可安装 MCP 的项目名列表（dsh 无项目级）。"""
+    from ...skill_manager import project_dirs
+
+    return {"projects": [p["project"] for p in project_dirs()]}
+
+
+@router.post("/mcp/servers")
+def mcp_server_create(body: schemas.McpServerCreate):
+    """向指定端安装（新建）一个 MCP server；同名已存在返回 409。"""
+    try:
+        return mcp_manager.create_server(
+            body.scope, body.tool, body.project, body.model_dump()
+        )
+    except ValueError as e:
+        raise HTTPException(409, str(e))

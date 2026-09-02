@@ -155,3 +155,27 @@ class McpServerRefIn(BaseModel):
     tool: str = Field(pattern="^(claude|codex|dsh|zcode)$")
     project: Optional[str] = None
     name: str
+
+
+class McpDescriptionIn(BaseModel):
+    """保存/清空某个 MCP server 的自定义功能介绍（description 空串即删除）。"""
+
+    name: str
+    description: str = ""
+
+
+class McpServerCreate(BaseModel):
+    """向指定端安装（新建）一个 MCP server。"""
+
+    scope: str = Field(pattern="^(global|project)$")
+    tool: str = Field(pattern="^(claude|codex|dsh|zcode)$")
+    project: Optional[str] = None
+    name: str
+    transport: str = Field(pattern="^(stdio|http|sse)$")
+    command: Optional[str] = None
+    args: list[str] = []
+    env: dict[str, str] = {}
+    url: Optional[str] = None
+    headers: dict[str, str] = {}
+    cwd: Optional[str] = None
+    description: str = ""
