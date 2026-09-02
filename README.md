@@ -1,10 +1,109 @@
 # a4api
 
-一个开箱即用的 **Agent LLM 服务商切换工具**，通过可视化界面读写 `~/.claude/settings.json`、`~/.codex/config.toml` 与 `~/.dsh/settings.yaml`，让 **Claude Code、Codex 与 dsh（DeepSeek Harness）** 在不同服务商、模型、API Key 之间**一键切换**，无需手动编辑配置文件。
+**四端 AI 编程工具管理台**：为 **Claude Code、Codex、dsh（DeepSeek Harness）与 ZCode（智谱 Agentic 开发环境）** 提供统一的**技能管理（Skill）**、**MCP 管理**与 **API 服务商切换**。所有操作通过可视化界面完成，无需手动编辑配置文件。
 
-Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Responses 接口，对国内用户常用的 OpenAI 兼容服务商（DeepSeek、智谱等）以及 OpenRouter 这类聚合网关支持有限。a4api 通过内置的**本地翻译代理**：把 Anthropic 请求实时翻译成 OpenAI Chat Completions 格式转发给上游，让 Claude Code 也能流畅使用任意 OpenAI 兼容 API；对原生支持 Responses 的服务商（如 DeepSeek）让 Codex **直连上游**，对仅提供 Chat Completions 的服务商（如智谱）则由代理把 Responses 翻译转发。一套配置即可同时覆盖 Claude Code 与 Codex。此外支持 **dsh（DeepSeek Harness）**：dsh 原生走 OpenAI Chat Completions 接口，经本地翻译代理的 `/chat/completions` 透传端点写入 `~/.dsh/settings.yaml` 与 `~/.dsh/.credentials.yaml`，配置热加载、切换后新会话即生效。代理透传时会把上游流式分片里 tool_calls 的 null 字段归一为省略键，规避部分上游（如 opencode zen）以 `null` 填充后续分片导致 dsh 适配器把工具名覆盖为空（`unknown tool ""`）的问题。
+| 能力 | 说明 |
+|---|---|
+| **技能管理** | 四端全局/项目级 skill 自动发现、聚合标注、跨端迁移、回收站恢复，一键把项目 skill 补齐到所有缺失的端 |
+| **MCP 管理** | 四端 MCP server 自动发现、跨端迁移（按传输能力矩阵校验）、快照回收站，密钥全程脱敏/加密 |
+| **API 切换** | 四端不同服务商、模型、API Key 一键切换，配置自动备份、原子写入，密钥 DPAPI 加密存储 |
 
-核心特性：配置方案卡片化管理、切换前自动备份、API Key 采用 Windows DPAPI 加密存储、本地代理仅监听本机并以随机 token 鉴权。无论你是想快速体验各家模型，还是想统一管理团队的 API 配置，都能通过几个点击完成。
+---
+
+## 技能管理
+
+四个工具均使用同一套技能格式（`<skill-name>/SKILL.md` 目录 + frontmatter `name`/`description`），因此 a4api 可以把它们当作一种资源统一管理。
+
+### 发现与聚合
+
+- 自动扫描四端**全局**与**项目级**技能目录，以 frontmatter `name` 为唯一标识做**聚合标注**：同名技能跨端存在时自动标记「已在 N 端存在」。
+- 项目根目录列表可配置（默认扫描 `C:\ProgramMine`），只收录含至少一个 skill 的项目。
+- Codex 全局的保留目录（`.system/` 等点开头目录）自动跳过，不视为用户技能。
+
+### 跨端迁移与「一键适配四端」
+
+- 任意一端的 skill 可迁移到任意目标端（全局或任意项目），迁移为**非破坏复制**：源端永久保留。
+- 目标端已存在同名技能（frontmatter name 或目录名任一命中）时，旧版自动移入回收站而非静默覆盖。
+- **「一键适配四端」**：一键把项目内全部 skill 按其缺失的端一次补齐，先弹计划清单再执行，带进度条并临时锁定页面，防止中途误操作。
+- 每次迁移写入**迁移日志**（时间、Skill、源、目标、结果），全程可追溯。
+
+### 回收站
+
+- 删除的 skill 移入回收站，**30 天内**可恢复原位或彻底删除；恢复时原位置被占用会明确报错，绝不覆盖。
+- 过期条目在下次访问回收站时惰性清理，并在返回结果中提示本次清理数量。
+
+### 四端技能目录
+
+| 工具 | 全局（用户级） | 项目级 |
+|---|---|---|
+| Claude Code | `~/.claude/skills/` | `<项目>/.claude/skills/` |
+| Codex | `~/.codex/skills/` | `<项目>/.codex/skills/` |
+| dsh | `~/.dsh/skills/`（`$DSH_HOME` 可覆盖） | `<项目>/.dsh/skills/` |
+| ZCode | `~/.zcode/skills/` | `<项目>/.zcode/skills/` |
+
+> ZCode 官方还识别跨工具兼容目录 `~/.agents/skills` 与 `<项目>/.agents/skills`；a4api 统一托管到 `.zcode` 前缀，与其它端保持一致。迁移到 ZCode 的 skill 会被 ZCode 客户端真实读取。
+
+---
+
+## MCP 管理
+
+四端的 MCP server 都写在各自的配置文件里，a4api 把它们归一为统一视图（`name` / `transport` / `command` / `args` / `env` / `url` / `headers`）管理。
+
+### 发现与聚合
+
+- 自动发现四端全局与项目级 MCP server，同名 server 跨端聚合标注（「已在 N 端存在」）。
+- 详情中 `env` / `headers` **一律脱敏**（只回显键名），API 永不回传明文密钥。
+- 项目级自动识别：Claude Code `.mcp.json`、Codex `.codex/config.toml`、ZCode `.zcode/config.json`。
+
+### 跨端迁移与传输能力矩阵
+
+- 任意端的 server 可迁移到任意目标端；目标端已有同名 server 时**先快照进回收站再写入**，写入前自动备份目标配置文件。
+- 迁移按**传输能力矩阵**严格校验，不兼容的组合整对失败并留日志，**不静默降级**：
+
+| 目标端 | 支持的传输 | 配置文件 |
+|---|---|---|
+| Claude Code | stdio / sse / http | `~/.claude.json`（全局）、`<项目>/.mcp.json`（项目） |
+| Codex | stdio | `~/.codex/config.toml`（`[mcp_servers.*]`） |
+| dsh | stdio / streamable-http | `~/.dsh/profiles/<profile>/cordis.patch.yml` |
+| ZCode | stdio / sse / http | `~/.zcode/cli/config.json`、`<项目>/.zcode/config.json`（`mcp.servers`） |
+
+> dsh 与 ZCode 的细节：dsh 的 MCP server 挂在 `@deepseek-ai/dsh-mcp-client` 插件条目下，重写时保留其它非管理条目；dsh 无项目级 MCP。ZCode 配置 schema 严格（未知键会被丢弃），a4api 只写其规范字段（`type`/`command`/`args`/`cwd`/`env`/`url`/`headers`/`enabled`/`timeoutMs`），迁移到 ZCode 的 server 会被客户端自动连接。
+
+### 回收站与安全
+
+- 被替换/删除的 server 配置片段**快照进回收站**（30 天内可恢复）；快照中的 `env` / `headers` 用 **DPAPI 加密**落盘，恢复时解密写回。
+- 每次迁移写入日志；发现、预览、回收站接口对敏感字段全程脱敏。
+
+---
+
+## API 服务商切换
+
+在以上管理能力之外，a4api 也可为四端一键切换服务商、模型与 API Key：
+
+- **Claude Code**：Anthropic 协议直连，或经内置**本地翻译代理**把请求实时翻译为 OpenAI Chat Completions 转发给 OpenAI 兼容服务商（代理仅监听 `127.0.0.1`、随机 token 鉴权，工具退出后仍存活）。
+- **Codex**：OpenAI Responses 协议写入 `~/.codex/config.toml`；上游原生支持 Responses（如 DeepSeek）时直连，否则经本地代理翻译转发。
+- **dsh**：经本地代理 `/chat/completions` 透传连接上游（顺带归一上游流式分片中的 `null` 字段，规避 dsh 适配器把工具名覆盖为空的问题），配置热加载、新会话即生效。
+- **ZCode**：原生支持 Anthropic / OpenAI 两种协议，**直连**写入 CLI 与桌面端两份配置（provider 条目以 `a4api_p<id>` 托管、保留手工条目），无需本地代理。
+
+切换前自动备份目标配置文件（滚动保留最近 5 份）并原子写入；API Key 使用 Windows DPAPI 加密存储，接口永不回显明文。
+
+### 预置服务商模板
+
+启动时自动写入并按模板定义同步，可增删改：
+
+| 服务商 | API 地址 | 协议 | 原生 Responses |
+|--------|----------|------|----------------|
+| DeepSeek-anthropic | `https://api.deepseek.com/anthropic` | Anthropic | — |
+| 智谱-anthropic | `https://open.bigmodel.cn/api/anthropic` | Anthropic | — |
+| DeepSeek-openai | `https://api.deepseek.com/` | OpenAI | ✅ 直连 |
+| 智谱-openai | `https://open.bigmodel.cn/api/paas/v4` | OpenAI | — |
+| OpenRouter-openai | `https://openrouter.ai/api/v1` | OpenAI | — |
+| OpenCodeGo-openai | `https://opencode.ai/zen/go/v1` | OpenAI | — |
+| 本地llmstudio-openai | `http://127.0.0.1:1234/v1` | OpenAI | — |
+
+> 模板命名遵循「服务商-协议」约定：同一服务商可能同时提供 Anthropic 与 OpenAI 兼容两套接口，因此预置两条记录（如 `DeepSeek-anthropic` / `DeepSeek-openai`）。**原生 Responses**：勾选后 Codex 直接连接上游 `/responses` 接口，无需本地翻译代理；DeepSeek 官方原生支持 OpenAI Responses（仅 `deepseek-v4-flash` 模型）。内置模板在升级时会按模板定义自动同步，自定义服务商不受影响。
+
+---
 
 ## 下载、安装与使用
 
@@ -22,13 +121,13 @@ Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Respons
 
 1. 安装完成后，从**开始菜单**或**桌面快捷方式**启动 a4api
 2. 首次安装/运行时若出现 **Windows SmartScreen 提示**，点击「更多信息 → 仍要运行」即可（应用未做商业代码签名，属正常现象，不影响功能）
-3. 打开界面后选择预置服务商模板，填入 API Key 即可一键切换
+3. 界面四个页签：配置方案（API 切换）、供应商管理、**技能管理**、**MCP 管理**
 
 ### 数据与隐私
 
 - 运行时数据（数据库、配置备份）写入 `%APPDATA%\a4api\`，日志写入 `~/.a4api/logs/`
 - API Key 使用 Windows DPAPI 加密存储，与当前 Windows 用户绑定
-- 切换配置前自动备份原 `~/.claude/settings.json` / `~/.codex/config.toml` / `~/.dsh/settings.yaml` / `~/.dsh/.credentials.yaml`（滚动保留最近 5 份）
+- 修改前自动备份原配置文件（`~/.claude/settings.json` / `~/.codex/config.toml` / `~/.dsh/settings.yaml` / `~/.dsh/.credentials.yaml` / `~/.zcode/cli/config.json` / `~/.zcode/v2/config.json` 等，滚动保留最近 5 份）
 
 ### 常见问题
 
@@ -44,7 +143,7 @@ Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Respons
 1. **明确类型**：Bug 报告 / 功能建议 / 使用疑问，选择对应标签，便于分流处理
 2. **环境信息（必填）**：
    - a4api 版本号（发行版页面标注的版本）
-   - 目标应用：Claude Code / Codex / dsh / 其他
+   - 目标应用：Claude Code / Codex / dsh / ZCode / 其他
    - 服务商与模型：如 DeepSeek、智谱 GLM 等
 3. **复现步骤**：从打开应用到出现问题的完整操作路径，越具体越好；尽量写明「做了什么 → 实际结果 → 预期结果」
 4. **日志**：附上 `~/.a4api/logs/a4api.log` 的**相关片段**（不要整份粘贴，可截取报错前后内容）
@@ -54,39 +153,7 @@ Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Respons
 
 > 提交前请先搜索是否已有相同 Issue，避免重复提交。
 
-## 功能
-
-- 预置 7 个常用服务商模板（DeepSeek、智谱、OpenRouter、OpenCodeGo、本地推理等），一键生成配置方案
-- 选择服务商时支持按名称关键字实时搜索（如输入 `openrouter`、`deep` 即可快速定位）
-- 支持 Anthropic 协议与 OpenAI 兼容 API（切换时自动启动本地翻译代理进程，关闭工具后仍可继续使用）
-- 每个配置方案可选应用目标：Claude Code、Codex、dsh 或任意组合（Codex 使用 OpenAI Responses 接口写入 `~/.codex/config.toml`；dsh 使用 OpenAI Chat Completions 接口写入 `~/.dsh/settings.yaml` 与 `~/.dsh/.credentials.yaml`；原生支持 Responses 的上游如 DeepSeek 让 Codex 直连，其余经本地翻译代理；dsh 始终经本地翻译代理透传）
-- 配置方案卡片化管理：新增、编辑、删除、一键切换
-- 当前生效配置醒目高亮
-- 切换前自动备份原配置（滚动保留最近 5 份），原子写入防损坏
-- API Key 使用 Windows DPAPI 加密存储，接口永不回显明文
-- 本地翻译代理仅监听 127.0.0.1，并以随机 token 鉴权
-- 切换 Claude Code 配置后可选择一键重启 Claude Code；Codex 配置写入后重启 Codex 生效；dsh 配置热加载，新会话即生效
-- 三端技能管理：自动发现 Claude Code / Codex / dsh 的全局与项目级 skill 并聚合标注；跨端迁移为非破坏复制（源端保留），目标端同名旧版自动移入回收站而非静默覆盖；「一键适配三端」把项目内全部 skill 按缺失端一次补齐，迁移过程带进度条并临时锁定页面其他操作
-- 技能回收站：删除的 skill 移入回收站，30 天内可恢复原位或彻底删除；每次迁移写入日志可追溯
-- 单实例检测，防止重复运行
-
-### 预置服务商模板
-
-启动时自动写入并按模板定义同步，可增删改：
-
-| 服务商 | API 地址 | 协议 | 原生 Responses |
-|--------|----------|------|----------------|
-| DeepSeek-anthropic | `https://api.deepseek.com/anthropic` | Anthropic | — |
-| 智谱-anthropic | `https://open.bigmodel.cn/api/anthropic` | Anthropic | — |
-| DeepSeek-openai | `https://api.deepseek.com/` | OpenAI | ✅ 直连 |
-| 智谱-openai | `https://open.bigmodel.cn/api/paas/v4` | OpenAI | — |
-| OpenRouter-openai | `https://openrouter.ai/api/v1` | OpenAI | — |
-| OpenCodeGo-openai | `https://opencode.ai/zen/go/v1` | OpenAI | — |
-| 本地llmstudio-openai | `http://127.0.0.1:1234/v1` | OpenAI | — |
-
-> 模板命名遵循「服务商-协议」约定：同一服务商可能同时提供 Anthropic 与 OpenAI 兼容两套接口，因此预置两条记录（如 `DeepSeek-anthropic` / `DeepSeek-openai`）。OpenRouter 为 OpenAI 兼容聚合网关，配置方案中填入其 API Key 即可路由到 OpenRouter 上架的各家模型。
->
-> **原生 Responses**：勾选后 Codex 直接连接上游 `/responses` 接口，无需本地翻译代理。DeepSeek 官方原生支持 OpenAI Responses（仅 `deepseek-v4-flash` 模型），其余 OpenAI 兼容服务商默认经本地代理转发。内置模板在升级时会按模板定义自动同步（`api_base` / 协议 / 原生 Responses），自定义服务商不受影响。
+---
 
 ## 自动更新与安全
 
@@ -107,64 +174,29 @@ Claude Code 官方原生只认 Anthropic 协议，Codex 则使用 OpenAI Respons
 2. 确认 → 后台下载，前端实时进度；下载中可取消。
 3. 校验通过 → 提示「立即更新 / 稍后」。点击立即更新：应用先停掉本地翻译代理、自动退出并释放单实例锁，随后拉起 Inno Setup 安装向导；安装完成后启动的是新版本，配置、数据库与密钥完整保留。
 
+---
+
 ## 安全设计
 
-### 1. API Key 加密存储
+- **密钥加密存储**：所有 API Key 入库前经 Windows DPAPI（直接调用 `crypt32.dll`，无第三方依赖）加密，密文 base64 存入 SQLite，与当前 Windows 用户绑定；API 响应永不回显明文。
+- **本地翻译代理鉴权**：仅绑定 `127.0.0.1`、端口限定 `17890–17899`；每次启动生成随机鉴权 token，请求必须匹配否则 `401`；只在「OpenAI 兼容 + 目标含 Claude/Codex/dsh」时运行，密钥从数据库按当前生效配置解密，不硬编码。
+- **配置写入与备份**：修改任何目标配置文件前自动备份（滚动保留最近 5 份）；全部采用**原子写**（临时文件 + `fsync` + `os.replace`），崩溃不损坏配置；写入为**合并式**，用户已有的 hooks / permissions / 其它 env / provider 原样保留。
+- **后端 API 防护**：CORS 白名单仅放行 `localhost` / `127.0.0.1` / `[::1]`；请求体经 Pydantic 严格校验；桌面形态下服务仅暴露本机。
+- **数据与文件权限**：打包后数据写入 `%APPDATA%\a4api\`；非 Windows 环境收紧 `700`/`600` 权限；`.gitignore` 排除数据库与运行时数据。
+- **并发与一致性**：配置激活用进程内互斥锁串行化，异常事务回滚；SQLite 开启外键约束，删除服务商前校验其下配置方案。
+- **进程与单实例**：Windows 命名互斥体保证单实例运行；重启 Claude Code 前用 CIM 精确匹配进程，避免误杀。
+- **日志与隐私**：默认不记录任何请求/响应内容；代理调试日志仅当显式设置 `A4API_PROXY_DEBUG` 时开启。
 
-- 所有 API Key 在入库前经 **Windows DPAPI**（直接调用 `crypt32.dll` 的 `CryptProtectData`，无第三方依赖）加密，密文以 base64 存入 SQLite，与当前 Windows 用户绑定，换用户/换机器后无法解密。
-- 任何 API 响应都不包含 API Key 明文或密文（响应模型 `ConfigOut` 不暴露密钥字段），密钥仅在「切换」时解密并写入目标配置文件，或传入本地代理。
-- 非 Windows 环境仅做 base64 编码兜底，**不具备安全性**，仅供开发调试。
-- 解密失败时返回空字符串并记录错误日志，不静默产出脏数据。
+### 自动化测试
 
-### 2. 本地翻译代理鉴权（防未授权调用）
-
-为 OpenAI 兼容服务商启动的本地翻译代理：
-
-- **仅绑定 `127.0.0.1`**，不对外网开放；端口限定在 `17890–17899` 的固定小范围。
-- 每次启动由 `secrets.token_urlsafe(24)` 生成**随机鉴权 token**，请求必须携带 `x-api-key` 或 `Authorization: Bearer <token>` 且与 token 一致，否则返回 `401`。
-- 代理只在配置为「OpenAI 兼容 + 目标含 Claude/Codex/dsh」时才运行，从数据库中按当前生效配置解密密钥来更新上游，**不硬编码任何密钥**；当生效配置不再需要代理时自动退出。
-- 代理提供 `/chat/completions` 透传端点（供 dsh 原生 OpenAI 客户端），并把上游流式分片里 tool_calls 的 null 字段归一为省略键，规避 `dsh-llm-deepseek` 等对 null 敏感的适配器把工具名/ID 覆盖为空（修复部分上游工具调用失效）。
-- 复用已运行代理前会校验其能力版本（`/v1/api/version`，要求 ≥ 2 且支持 `openai_responses`），避免误用旧构建的未鉴权进程；端口状态文件过期时按端口反查占用进程并清理。
-
-### 3. 配置写入与备份
-
-- 修改 `~/.claude/settings.json`、`~/.codex/config.toml` 前**自动备份**，滚动保留最近 5 份，切换失败可随时回滚。
-- 所有写入均采用**原子写**：先写临时文件并 `fsync`，再 `os.replace` 覆盖目标，避免写入中途崩溃导致配置文件损坏。
-- 写入采用**合并式更新**：只覆盖工具托管的字段（`env` 中的 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL`、`model`、`alwaysThinkingEnabled`），`hooks`、`permissions`、`mcpServers` 及其他 `env` 变量原样保留，不破坏用户已有的 hook、授权与配置。
-
-### 4. 后端 API 防护
-
-- CORS 白名单仅放行 `localhost` / `127.0.0.1` / `[::1]`，阻止任意网站读取或篡改本地配置。
-- 请求体经 Pydantic 校验（如 `api_type` 仅允许 `anthropic`/`openai`），非法输入直接拒绝。
-- 前端静态资源由后端统一托管，桌面应用形态下服务仅暴露给本机。
-
-### 5. 数据目录与文件权限
-
-- 打包后运行时数据（数据库、配置备份）写入 `%APPDATA%\a4api\`，落在当前用户目录下。
-- 非 Windows 环境对数据目录与数据库文件执行 `700` / `600` 权限收紧（尽力而为的加固，Windows 上由 NTFS ACL 控制）。
-- `.gitignore` 已排除数据库与运行时数据，避免密钥密文随仓库泄露。
-
-### 6. 并发与数据一致性
-
-- 配置激活操作使用**进程内互斥锁**串行化，避免并发请求把多个配置同时标为 active；异常时事务回滚，不留半写入状态。
-- SQLite 连接开启**外键约束**（`PRAGMA foreign_keys=ON`），删除服务商前校验其下配置方案，杜绝孤儿数据。
-
-### 7. 进程与单实例
-
-- 使用 Windows 命名互斥体保证桌面应用**单实例**运行，防止多实例互相覆盖配置。
-- 重启 Claude Code 前通过 CIM 精确匹配命令行含 `claude` 的进程，避免误杀无关进程。
-
-### 8. 日志与隐私
-
-- 默认日志**不记录任何请求/响应内容**，只记录时间、级别与摘要信息，日志文件写入 `~/.a4api/logs/`。
-- 代理调试日志（含完整请求头、请求体、上游响应）默认关闭，仅当显式设置 `A4API_PROXY_DEBUG` 环境变量时才开启，便于排查问题而不泄露对话内容。
-
-### 9. 自动化测试
-
+- `test_skill_manager.py`：四端 skill 发现聚合、跨端迁移、同名冲突回收、删除→恢复往返、30 天过期清理。
+- `test_mcp_manager.py`：四端 MCP 发现聚合、跨端迁移（含传输能力矩阵约束）、快照回收、env/headers 脱敏与 DPAPI 加密。
+- `test_switch.py` / `test_config_manager.py`：四端切换写入、协议约束、原子写入不留临时文件。
 - `test_crypto.py`：DPAPI 加解密往返、非法密文返回空。
-- `test_config_manager.py`：原子写入不留临时文件残留。
 - `test_openai_proxy.py`：Anthropic ⇄ OpenAI 协议翻译正确性，含工具 schema 处理回归用例。
-- `test_updater.py`：签名载荷 golden 基准（防跨实现回归）、验签/篡改拒绝、版本比较与降级、SHA256/尺寸校验、忽略逻辑、URL 白名单、清单字段校验、GitHub→Gitee 回退与 TTL 缓存、本地服务器下载/取消/镜像回退、状态原子读写。
+- `test_updater.py`：签名载荷 golden 基准、验签/篡改拒绝、版本比较与防降级、SHA256/尺寸校验、URL 白名单、GitHub→Gitee 回退与 TTL 缓存、本地下载/取消/镜像回退、状态原子读写。
+
+---
 
 ## 开发
 
