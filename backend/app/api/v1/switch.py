@@ -20,6 +20,7 @@ def get_status(db: Session = Depends(get_db)):
     current = config_manager.read_settings()
     codex = config_manager.read_codex_settings()
     dsh_model, dsh_provider = config_manager.read_dsh_selection()
+    zcode_model, zcode_provider = config_manager.read_zcode_selection()
     return schemas.StatusOut(
         active_config=active,
         settings_file_exists=config_manager.settings_path().exists(),
@@ -30,6 +31,9 @@ def get_status(db: Session = Depends(get_db)):
         dsh_file_exists=config_manager.dsh_settings_path().exists(),
         current_dsh_model=dsh_model,
         current_dsh_provider=dsh_provider,
+        zcode_file_exists=config_manager.zcode_cli_config_path().exists(),
+        current_zcode_model=zcode_model,
+        current_zcode_provider=zcode_provider,
     )
 
 
@@ -59,6 +63,7 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
     backup_path = None
     codex_backup_path = None
     dsh_backup_path = None
+    zcode_backup_path = None
     try:
         api_key = decrypt_text(config.api_key_encrypted)
         if not api_key:
@@ -127,11 +132,25 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
                 proxy_token=dsh_proxy.get("token"),
             )
             config_manager.atomic_write_dsh_credentials(creds)
+        if "zcode" in targets:
+            # zcode 原生支持 anthropic / openai-compatible 两种 provider kind，
+            # 直连上游、无需本地翻译代理；CLI 与桌面端两份配置都写（provider
+            # 条目托管为 a4api_p<id>，model 格式 "<provider_id>/<model>"）。
+            zcode_backup_path = config_manager.backup_zcode_configs().get("cli")
+            cli_existing = config_manager.read_zcode_cli_config()
+            v2_existing = config_manager.read_zcode_v2_config()
+            zcode_cli, zcode_v2 = config_manager.build_zcode_settings(
+                cli_existing, v2_existing, config.provider, api_key, config.model
+            )
+            config_manager.atomic_write_zcode_cli_config(zcode_cli)
+            config_manager.atomic_write_zcode_v2_config(zcode_v2)
         detail = "切换成功"
         if "codex" in targets:
             detail += "，Codex 配置已写入"
         if "dsh" in targets:
             detail += "，dsh 配置已写入"
+        if "zcode" in targets:
+            detail += "，ZCode 配置已写入"
         crud.add_log(db, config_id, "success", detail)
     except Exception as e:
         logger.exception("切换配置「%s」失败", config.name)
@@ -151,12 +170,15 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
         message += "；Codex 配置已写入（" + ("原生直连" if config.provider.native_responses else "经本地代理") + "），重启 Codex 后生效"
     if "dsh" in targets:
         message += "；dsh 配置已写入（经本地代理，热加载生效）"
+    if "zcode" in targets:
+        message += "；ZCode 配置已写入（直连上游）"
     return schemas.SwitchResult(
         success=True,
         message=message,
         backup_path=str(backup_path) if backup_path else None,
         codex_backup_path=str(codex_backup_path) if codex_backup_path else None,
         dsh_backup_path=str(dsh_backup_path) if dsh_backup_path else None,
+        zcode_backup_path=str(zcode_backup_path) if zcode_backup_path else None,
         restart=restarted,
         process_info=process_info,
     )

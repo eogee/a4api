@@ -21,19 +21,21 @@ from backend.app.models import SkillMigration, SkillTrash
 
 @pytest.fixture()
 def env(tmp_path, monkeypatch):
-    """隔离三端 skill 根、数据目录与项目根列表。返回上下文字典。"""
+    """隔离四端 skill 根、数据目录与项目根列表。返回上下文字典。"""
     ctx = {
         "data": tmp_path / "data",
         "claude": tmp_path / "claude-skills",
         "codex": tmp_path / "codex-skills",
         "dsh": tmp_path / "dsh-skills",
+        "zcode": tmp_path / "zcode-skills",
         "projects_root": tmp_path / "projects",
     }
     monkeypatch.setenv("A4API_DATA_DIR", str(ctx["data"]))
     monkeypatch.setenv("A4API_CLAUDE_SKILLS_PATH", str(ctx["claude"]))
     monkeypatch.setenv("A4API_CODEX_SKILLS_PATH", str(ctx["codex"]))
     monkeypatch.setenv("A4API_DSH_SKILLS_PATH", str(ctx["dsh"]))
-    for key in ("claude", "codex", "dsh"):
+    monkeypatch.setenv("A4API_ZCODE_SKILLS_PATH", str(ctx["zcode"]))
+    for key in ("claude", "codex", "dsh", "zcode"):
         ctx[key].mkdir(parents=True)
     ctx["projects_root"].mkdir(parents=True)
     # 项目根指向临时目录下的 projects_root
@@ -115,6 +117,33 @@ def test_discover_projects_only_include_ones_with_skills(env):
     assert groups["deploy"]["duplicate"] is True
     tools = sorted(c["tool"] for c in groups["deploy"]["copies"])
     assert tools == ["claude", "codex"]
+
+
+def test_discover_includes_zcode_global_and_project_roots(env):
+    """zcode 端：全局 ~/.zcode/skills 与项目级 .zcode/skills 均被发现、聚合标注。"""
+    make_skill(env["zcode"], "git-commit", "git-commit", "ZCode 版提交技能")
+    make_skill(env["claude"], "git-commit", "git-commit", "Claude 版提交技能")
+    proj = make_project(env, "proj-zcode")
+    make_skill(proj / ".zcode" / "skills", "deploy", "deploy", "ZCode 项目级部署")
+
+    data = skill_manager.discover()
+    global_groups = {g["name"]: g for g in data["global"]}
+    assert "git-commit" in global_groups
+    g = global_groups["git-commit"]
+    assert g["end_count"] == 2
+    assert g["ends"] == ["claude", "zcode"]
+
+    projects = {p["project"]: p for p in data["projects"]}
+    assert "proj-zcode" in projects
+    groups = {g["name"]: g for g in projects["proj-zcode"]["skills"]}
+    assert set(groups) == {"deploy"}
+    assert groups["deploy"]["ends"] == ["zcode"]
+    assert groups["deploy"]["copies"][0]["scope"] == "project"
+    # 项目级 zcode 根路径正确
+    location = skill_manager.skill_location(
+        pathlib.Path(groups["deploy"]["copies"][0]["path"])
+    )
+    assert location == {"scope": "project", "tool": "zcode", "project": "proj-zcode"}
 
 
 def test_project_roots_roundtrip_and_validation(env):
@@ -205,6 +234,40 @@ def test_migrate_trashes_same_name_conflict_before_write(env, db):
         tp = pathlib.Path(row.trash_path)
         assert recycle in tp.parents
         assert tp.exists()
+
+
+def test_migrate_to_zcode_writes_global_and_project_roots(env, db):
+    """迁移到 zcode 端：全局 → ~/.zcode/skills，项目级 → <repo>/.zcode/skills。"""
+    make_skill(env["claude"], "git-commit", "git-commit", "v1")
+    proj = make_project(env, "zcode-proj")
+
+    result = skill_manager.migrate(
+        db,
+        [{"scope": "global", "tool": "claude", "project": None, "name": "git-commit"}],
+        [
+            {"scope": "global", "tool": "zcode", "project": None},
+            {"scope": "project", "tool": "zcode", "project": "zcode-proj"},
+        ],
+    )
+    assert result["migrated"] == 2 and result["failed"] == 0
+    assert (env["zcode"] / "git-commit" / "SKILL.md").exists()
+    assert (proj / ".zcode" / "skills" / "git-commit" / "SKILL.md").exists()
+    logs = db.query(SkillMigration).all()
+    assert len(logs) == 2
+    assert all(l.status == "success" for l in logs)
+    assert {l.target_tool for l in logs} == {"zcode"}
+
+
+def test_skill_schemas_accept_zcode_tool(env, db):
+    """SkillSourceIn / SkillTargetIn 的 tool 校验接受 zcode，迁移 API 贯通。"""
+    make_skill(env["zcode"], "release", "release", "发布")
+    body = schemas.SkillMigrateIn(
+        sources=[schemas.SkillSourceIn(scope="global", tool="zcode", name="release")],
+        targets=[schemas.SkillTargetIn(scope="global", tool="claude")],
+    )
+    result = skills_api.migrate_skills(body, db)
+    assert result["migrated"] == 1
+    assert (env["claude"] / "release" / "SKILL.md").exists()
 
 
 def test_migrate_to_project_target_requires_known_project(env, db):

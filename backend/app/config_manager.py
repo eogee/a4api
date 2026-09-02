@@ -36,6 +36,13 @@ DSH_ADAPTER_DEFAULT_MAX_TOKENS = 256000
 # 131072 输出上限，会把请求直接打回 INVALID_REQUEST；切换时写一个兼容的安全值兜底。
 DSH_DEFAULT_MAX_TOKENS = 131072
 
+# zcode（智谱 Agentic 开发环境）相关常量
+ZCODE_HOME_ENV = "A4API_ZCODE_HOME"
+ZCODE_CLI_CONFIG_ENV = "A4API_ZCODE_CLI_CONFIG_PATH"
+ZCODE_V2_CONFIG_ENV = "A4API_ZCODE_V2_CONFIG_PATH"
+ZCODE_CLI_CONFIG_REL = "cli/config.json"  # CLI/用户配置文件（hooks/plugins/provider/model）
+ZCODE_V2_CONFIG_REL = "v2/config.json"  # 桌面端 provider/models 配置
+
 
 def settings_path() -> Path:
     override = os.environ.get("A4API_SETTINGS_PATH")
@@ -51,11 +58,11 @@ def backup_dir() -> Path:
 
 
 def target_list(targets) -> list:
-    """规范化配置方案的应用目标列表（claude / codex / dsh）。"""
+    """规范化配置方案的应用目标列表（claude / codex / dsh / zcode）。"""
     result = []
     for t in (targets or "claude").split(","):
         t = (t or "").strip()
-        if t in ("claude", "codex", "dsh") and t not in result:
+        if t in ("claude", "codex", "dsh", "zcode") and t not in result:
             result.append(t)
     return result or ["claude"]
 
@@ -565,3 +572,202 @@ def read_dsh_selection() -> tuple[str | None, str | None]:
     if not isinstance(section, dict):
         return None, None
     return section.get("model"), section.get("provider")
+
+
+# ---------------- zcode（~/.zcode） ----------------
+#
+# zcode 原生支持「anthropic」与「openai-compatible」两种 provider kind，直连上游、
+# 无需本地翻译代理。配置分两份：
+#   - ~/.zcode/cli/config.json：CLI 用户配置，provider 条目 + 顶层 model
+#     （格式为 "<provider_id>/<model>"，据此选定当前生效的 provider）；
+#   - ~/.zcode/v2/config.json：桌面端 provider/models 配置，含各模型的
+#     reasoning / limit / modalities 元数据。
+# 切换时两份都写（合并式，保留 hooks / 其它 provider 等既有键），provider 条目
+# 以 a4api_p<id> 命名托管，便于切换时整体替换而不污染用户手工添加的条目。
+
+
+def zcode_home() -> Path:
+    """zcode 数据目录：优先 $A4API_ZCODE_HOME，否则 ~/.zcode。"""
+    override = os.environ.get(ZCODE_HOME_ENV)
+    return Path(override) if override else Path.home() / ".zcode"
+
+
+def zcode_cli_config_path() -> Path:
+    """zcode CLI 用户配置文件路径，可用环境变量 A4API_ZCODE_CLI_CONFIG_PATH 覆盖。"""
+    override = os.environ.get(ZCODE_CLI_CONFIG_ENV)
+    if override:
+        return Path(override)
+    return zcode_home() / ZCODE_CLI_CONFIG_REL
+
+
+def zcode_v2_config_path() -> Path:
+    """zcode 桌面端 provider 配置路径，可用环境变量 A4API_ZCODE_V2_CONFIG_PATH 覆盖。"""
+    override = os.environ.get(ZCODE_V2_CONFIG_ENV)
+    if override:
+        return Path(override)
+    return zcode_home() / ZCODE_V2_CONFIG_REL
+
+
+def _read_json_config(path: Path) -> dict:
+    """读取 JSON 配置；文件不存在或损坏时返回空字典。"""
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def read_zcode_cli_config() -> dict:
+    """读取 zcode cli/config.json。"""
+    return _read_json_config(zcode_cli_config_path())
+
+
+def read_zcode_v2_config() -> dict:
+    """读取 zcode v2/config.json。"""
+    return _read_json_config(zcode_v2_config_path())
+
+
+def backup_zcode_configs() -> dict:
+    """修改前备份 zcode 两份配置，返回 {cli, v2} 各自的备份路径（无原文件时为 None）。
+
+    滚动保留最近 DEFAULT_BACKUP_KEEP 份，与其它目标一致。
+    """
+    result: dict = {}
+    for key, path in (
+        ("cli", zcode_cli_config_path()),
+        ("v2", zcode_v2_config_path()),
+    ):
+        if not path.exists():
+            result[key] = None
+            continue
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dest = backup_dir() / f"zcode.{key}.{ts}.json.bak"
+        shutil.copy2(path, dest)
+        backups = sorted(backup_dir().glob(f"zcode.{key}.*.json.bak"))
+        for old in backups[:-DEFAULT_BACKUP_KEEP]:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+        result[key] = str(dest)
+    return result
+
+
+def _atomic_write_json(path: Path, data: dict) -> None:
+    """原子写入 JSON：先写临时文件再替换，避免写入中断损坏配置。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".zcode.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+        raise
+
+
+def atomic_write_zcode_cli_config(data: dict) -> None:
+    """原子写入 zcode cli/config.json。"""
+    _atomic_write_json(zcode_cli_config_path(), data)
+
+
+def atomic_write_zcode_v2_config(data: dict) -> None:
+    """原子写入 zcode v2/config.json。"""
+    _atomic_write_json(zcode_v2_config_path(), data)
+
+
+def _zcode_model_entry(v2_existing: dict | None, model: str) -> dict:
+    """为目标模型生成 v2/config.json 中的 models 条目。
+
+    优先复制已有任意 provider 下同名模型的完整元数据结构（能力描述一致），
+    否则用保守默认（reasoning 可选 / context 200k / output 128k / 纯文本）。
+    """
+    providers = (v2_existing or {}).get("provider")
+    if isinstance(providers, dict):
+        for p in providers.values():
+            if not isinstance(p, dict):
+                continue
+            models = p.get("models")
+            if isinstance(models, dict) and model in models and isinstance(models[model], dict):
+                return copy.deepcopy(models[model])
+    return {
+        "reasoning": {
+            "enabled": True,
+            "variants": ["off", "high", "max"],
+            "defaultVariant": "max",
+        },
+        "limit": {"context": 200000, "output": 128000},
+        "modalities": {"input": ["text"], "output": ["text"]},
+        "zcode": {"modalitiesConfigured": True},
+    }
+
+
+def build_zcode_settings(
+    cli_existing: dict | None,
+    v2_existing: dict | None,
+    provider,
+    api_key: str,
+    model: str,
+) -> tuple[dict, dict]:
+    """基于现有两份 zcode 配置生成切换后的内容，返回 (cli_config, v2_config)。
+
+    zcode 原生支持 anthropic 与 openai-compatible 两种 provider kind，直连
+    上游、无需本地翻译代理：api_type=anthropic → kind=anthropic，
+    api_type=openai → kind=openai-compatible。provider 条目以 a4api_p<id>
+    命名托管（切换时整体替换本工具旧条目，保留用户手工添加的其它 provider），
+    顶层字段（hooks / plugins / 其它键）原样保留。
+    """
+    kind = "anthropic" if provider.api_type == "anthropic" else "openai-compatible"
+    provider_key = f"{A4API_PROVIDER_PREFIX}{provider.id}"
+    entry = {
+        "name": provider.name,
+        "kind": kind,
+        "options": {
+            "apiKey": api_key,
+            "baseURL": provider.api_base,
+            "apiKeyRequired": True,
+        },
+    }
+
+    cli = dict(cli_existing or {})
+    cli_providers = dict(cli.get("provider") or {})
+    for key in [k for k in cli_providers if str(k).startswith(A4API_PROVIDER_PREFIX)]:
+        cli_providers.pop(key, None)
+    cli_providers[provider_key] = {
+        **entry,
+        "options": {**entry["options"], "apiKey": api_key},
+    }
+    cli["provider"] = cli_providers
+    cli["model"] = f"{provider_key}/{model}"
+
+    v2 = dict(v2_existing or {})
+    v2_providers = dict(v2.get("provider") or {})
+    for key in [k for k in v2_providers if str(k).startswith(A4API_PROVIDER_PREFIX)]:
+        v2_providers.pop(key, None)
+    v2_providers[provider_key] = {
+        **entry,
+        "source": "custom",
+        "models": {model: _zcode_model_entry(v2_existing, model)},
+    }
+    v2["provider"] = v2_providers
+    return cli, v2
+
+
+def read_zcode_selection() -> tuple[str | None, str | None]:
+    """读取 zcode 当前生效的 provider 与 model（cli/config.json 顶层 model）。
+
+    zcode 的 model 格式为 "<provider_id>/<model>"，这里拆开返回。
+    """
+    model = read_zcode_cli_config().get("model")
+    if not model or "/" not in str(model):
+        return None, str(model) if model else None
+    provider_id, _, model_name = str(model).partition("/")
+    return model_name, provider_id

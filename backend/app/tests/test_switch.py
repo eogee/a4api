@@ -45,11 +45,15 @@ def _seed(db, *, api_type="anthropic", native_responses=False, targets="claude,c
 
 
 def _isolate_paths(tmp_path, monkeypatch):
-    """把 settings / codex 配置 / 备份目录 / 模型目录全部指到临时目录，避免碰真实用户目录。"""
+    """把 settings / codex 配置 / dsh / zcode / 备份目录 / 模型目录全部指到临时目录。"""
     monkeypatch.setenv("A4API_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("A4API_SETTINGS_PATH", str(tmp_path / "settings.json"))
     monkeypatch.setenv("A4API_CODEX_CONFIG_PATH", str(tmp_path / "config.toml"))
     monkeypatch.setenv("A4API_CODEX_CATALOG_PATH", str(tmp_path / "models.json"))
+    monkeypatch.setenv("A4API_ZCODE_CLI_CONFIG_PATH", str(tmp_path / "zcode-cli.json"))
+    monkeypatch.setenv(
+        "A4API_ZCODE_V2_CONFIG_PATH", str(tmp_path / "zcode-v2.json")
+    )
 
 
 def test_anthropic_provider_with_both_targets_fails_before_any_write(tmp_path, monkeypatch):
@@ -190,4 +194,168 @@ def test_dsh_target_writes_proxy_base_url_and_token(tmp_path, monkeypatch):
     creds = yaml.safe_load((tmp_path / "credentials.yaml").read_text(encoding="utf-8"))
     # dsh 要求 version-1 布局：凭证必须嵌在 refs 下，顶层出现未知键会让 dsh 拒绝启动
     assert creds == {"version": 1, "refs": {"DEEPSEEK_API_KEY": _PROXY["token"]}}
+    db.close()
+
+
+# ---------------- zcode 目标 ----------------
+
+_ZCODE_V2_PREEXISTING = {
+    "provider": {
+        "builtin:bigmodel": {
+            "name": "Bigmodel - API Key",
+            "kind": "anthropic",
+            "options": {"apiKey": "", "baseURL": "https://open.bigmodel.cn/api/anthropic"},
+            "enabled": False,
+            "source": "custom",
+            "models": {},
+        }
+    }
+}
+
+
+@pytest.mark.parametrize("api_type", ["anthropic", "openai"])
+def test_zcode_target_writes_both_configs_duplex_direct(
+    tmp_path, monkeypatch, api_type
+):
+    """zcode 目标：CLI 与桌面端两份配置都写入，直连上游、不经本地翻译代理。
+
+    anthropic 服务商 → kind=anthropic；openai 服务商 → kind=openai-compatible；
+    model 格式为 "<a4api_p<id>>/<model>"，与 zcode 现行格式一致。
+    """
+    _isolate_paths(tmp_path, monkeypatch)
+    monkeypatch.setattr(switch, "is_claude_running", lambda: True)
+    # 该方案同时含 claude 目标：openai 服务商下 Claude Code 需本地代理，mock 独立代理进程
+    monkeypatch.setattr(
+        switch.proxy_standalone, "ensure_proxy_running", lambda: dict(_PROXY)
+    )
+    # 预置 v2 配置，验证合并式写入：其它 provider 原样保留、hooks 不被抹掉
+    (tmp_path / "zcode-v2.json").write_text(
+        json.dumps(_ZCODE_V2_PREEXISTING), encoding="utf-8"
+    )
+    (tmp_path / "zcode-cli.json").write_text(
+        json.dumps({"hooks": {"enabled": True}, "model": "stale"}), encoding="utf-8"
+    )
+
+    Session = _make_session(tmp_path)
+    db = Session()
+    cfg = _seed(db, api_type=api_type, targets="claude,zcode")
+
+    result = switch.switch_config(cfg.id, schemas.SwitchRequest(restart=False), db)
+    assert result.success is True
+    assert result.zcode_backup_path is not None
+    assert crud.get_active_config(db) is not None
+
+    provider_key = f"a4api_p{cfg.provider_id}"
+    cli = json.loads((tmp_path / "zcode-cli.json").read_text(encoding="utf-8"))
+    assert cli["model"] == f"{provider_key}/test-model"
+    entry = cli["provider"][provider_key]
+    assert entry["name"] == f"provider-{api_type}"
+    assert entry["kind"] == ("anthropic" if api_type == "anthropic" else "openai-compatible")
+    assert entry["options"]["apiKey"] == "sk-test-123"
+    assert entry["options"]["baseURL"] == "https://api.example.com"
+    # hooks 保留
+    assert cli["hooks"]["enabled"] is True
+
+    v2 = json.loads((tmp_path / "zcode-v2.json").read_text(encoding="utf-8"))
+    # 其它 provider 原样保留，本工具旧托管条目被整体替换
+    assert "builtin:bigmodel" in v2["provider"]
+    v2_entry = v2["provider"][provider_key]
+    assert v2_entry["kind"] == entry["kind"]
+    assert v2_entry["source"] == "custom"
+    assert "test-model" in v2_entry["models"]
+    # 直连上游：代理没有被启动（不依赖本地翻译代理进程）
+    assert entry["options"]["baseURL"].startswith("https://api.example.com")
+    db.close()
+
+
+def test_zcode_target_does_not_require_openai_provider(tmp_path, monkeypatch):
+    """zcode 与 Codex/dsh 不同：Anthropic 服务商也可选 zcode 目标，无需 OpenAI。"""
+    _isolate_paths(tmp_path, monkeypatch)
+    Session = _make_session(tmp_path)
+    db = Session()
+    cfg = _seed(db, api_type="anthropic", targets="zcode")
+
+    result = switch.switch_config(cfg.id, schemas.SwitchRequest(restart=False), db)
+    assert result.success is True
+    cli = json.loads((tmp_path / "zcode-cli.json").read_text(encoding="utf-8"))
+    assert cli["provider"][f"a4api_p{cfg.provider_id}"]["kind"] == "anthropic"
+    db.close()
+
+
+def test_zcode_switch_preserves_user_providers_and_replaces_managed(tmp_path, monkeypatch):
+    """切换只替换 a4api 托管条目（a4api_p*），用户手工添加的 provider 不动。"""
+    _isolate_paths(tmp_path, monkeypatch)
+    (tmp_path / "zcode-v2.json").write_text(
+        json.dumps(
+            {
+                "provider": {
+                    "my-custom": {
+                        "name": "手工添加",
+                        "kind": "openai-compatible",
+                        "options": {"apiKey": "keep", "baseURL": "https://keep.example"},
+                        "source": "custom",
+                        "models": {},
+                    },
+                    "a4api_p999": {
+                        "name": "旧托管",
+                        "kind": "anthropic",
+                        "options": {"apiKey": "stale", "baseURL": "https://stale"},
+                        "source": "custom",
+                        "models": {},
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    Session = _make_session(tmp_path)
+    db = Session()
+    cfg = _seed(db, api_type="openai", targets="zcode")
+
+    result = switch.switch_config(cfg.id, schemas.SwitchRequest(restart=False), db)
+    assert result.success is True
+    v2 = json.loads((tmp_path / "zcode-v2.json").read_text(encoding="utf-8"))
+    assert v2["provider"]["my-custom"]["options"]["apiKey"] == "keep"
+    assert "a4api_p999" not in v2["provider"]
+    assert f"a4api_p{cfg.provider_id}" in v2["provider"]
+    db.close()
+
+
+def test_zcode_model_entry_reuses_existing_model_capabilities(tmp_path, monkeypatch):
+    """v2 配置中已存在同名模型时复制其能力元数据，而非重建默认。"""
+    _isolate_paths(tmp_path, monkeypatch)
+    (tmp_path / "zcode-v2.json").write_text(
+        json.dumps(
+            {
+                "provider": {
+                    "builtin:bigmodel": {
+                        "name": "Bigmodel",
+                        "kind": "anthropic",
+                        "options": {"apiKey": "", "baseURL": "https://bigmodel"},
+                        "source": "custom",
+                        "models": {
+                            "test-model": {
+                                "reasoning": {"enabled": True, "variants": ["low", "max"]},
+                                "limit": {"context": 1000000, "output": 128000},
+                                "modalities": {"input": ["text", "image"], "output": ["text"]},
+                            }
+                        },
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    Session = _make_session(tmp_path)
+    db = Session()
+    cfg = _seed(db, api_type="anthropic", targets="zcode")
+
+    result = switch.switch_config(cfg.id, schemas.SwitchRequest(restart=False), db)
+    assert result.success is True
+    v2 = json.loads((tmp_path / "zcode-v2.json").read_text(encoding="utf-8"))
+    entry = v2["provider"][f"a4api_p{cfg.provider_id}"]["models"]["test-model"]
+    assert entry["limit"]["context"] == 1000000
+    assert entry["modalities"]["input"] == ["text", "image"]
     db.close()

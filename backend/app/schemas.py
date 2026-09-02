@@ -37,7 +37,7 @@ class ConfigBase(BaseModel):
     provider_id: int
     api_key: str = Field(..., description="明文 Key，后端加密存储")
     model: str
-    targets: str = "claude"  # claude / codex / dsh，逗号分隔可多选
+    targets: str = "claude"  # claude / codex / dsh / zcode，逗号分隔可多选
     max_tokens: Optional[int] = Field(default=None, ge=1, description="dsh 单次输出上限；不填用兜底值")
 
 
@@ -78,6 +78,7 @@ class SwitchResult(BaseModel):
     backup_path: Optional[str] = None
     codex_backup_path: Optional[str] = None
     dsh_backup_path: Optional[str] = None
+    zcode_backup_path: Optional[str] = None
     restart: bool = False
     process_info: Optional[dict] = None
 
@@ -92,6 +93,9 @@ class StatusOut(BaseModel):
     dsh_file_exists: bool = False
     current_dsh_model: Optional[str] = None
     current_dsh_provider: Optional[str] = None
+    zcode_file_exists: bool = False
+    current_zcode_model: Optional[str] = None
+    current_zcode_provider: Optional[str] = None
 
 
 # ---------------- Skill 管理 ----------------
@@ -107,17 +111,47 @@ class ProjectRootsIn(BaseModel):
 
 class SkillSourceIn(BaseModel):
     scope: str = Field(pattern="^(global|project)$")
-    tool: str = Field(pattern="^(claude|codex|dsh)$")
+    tool: str = Field(pattern="^(claude|codex|dsh|zcode)$")
     project: Optional[str] = None
     name: str  # frontmatter name 或目录名
 
 
 class SkillTargetIn(BaseModel):
     scope: str = Field(pattern="^(global|project)$")
-    tool: str = Field(pattern="^(claude|codex|dsh)$")
+    tool: str = Field(pattern="^(claude|codex|dsh|zcode)$")
     project: Optional[str] = None
 
 
 class SkillMigrateIn(BaseModel):
     sources: list[SkillSourceIn]
     targets: list[SkillTargetIn]
+
+
+# ---------------- MCP 管理 ----------------
+
+
+class McpSourceIn(BaseModel):
+    scope: str = Field(pattern="^(global|project)$")
+    tool: str = Field(pattern="^(claude|codex|dsh|zcode)$")
+    project: Optional[str] = None
+    name: str  # server 名
+
+
+class McpTargetIn(BaseModel):
+    scope: str = Field(pattern="^(global|project)$")
+    tool: str = Field(pattern="^(claude|codex|dsh|zcode)$")
+    project: Optional[str] = None
+
+
+class McpMigrateIn(BaseModel):
+    sources: list[McpSourceIn]
+    targets: list[McpTargetIn]
+
+
+class McpServerRefIn(BaseModel):
+    """定位某端某个 server（删除 / 详情）。"""
+
+    scope: str = Field(pattern="^(global|project)$")
+    tool: str = Field(pattern="^(claude|codex|dsh|zcode)$")
+    project: Optional[str] = None
+    name: str
