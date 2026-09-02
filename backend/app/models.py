@@ -61,7 +61,7 @@ class SkillMigration(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     skill_name = Column(String(200), nullable=False)
-    source_tool = Column(String(20), nullable=False)  # claude / codex / dsh
+    source_tool = Column(String(20), nullable=False)  # claude / codex / dsh / zcode
     source_scope = Column(String(10), nullable=False)  # global / project
     source_project = Column(String(200), nullable=True)
     source_path = Column(String(500), nullable=False)
@@ -81,9 +81,44 @@ class SkillTrash(Base):
     id = Column(Integer, primary_key=True, index=True)
     skill_name = Column(String(200), nullable=False)  # frontmatter name
     dir_name = Column(String(200), nullable=False)  # 目录名（回收站目录前缀）
-    tool = Column(String(20), nullable=True)  # 来源端 claude / codex / dsh
+    tool = Column(String(20), nullable=True)  # 来源端 claude / codex / dsh / zcode
     scope = Column(String(10), nullable=True)  # global / project
     project = Column(String(200), nullable=True)  # 项目级来源项目名
     original_path = Column(String(500), nullable=False)  # 原位置（恢复目标）
     trash_path = Column(String(500), nullable=False)  # 回收站中的当前路径
+    trash_time = Column(DateTime, default=datetime.now)
+
+
+class McpMigration(Base):
+    """MCP server 迁移日志（写入语义：源端配置片段复制到目标配置文件）。"""
+
+    __tablename__ = "mcp_migrations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    server_name = Column(String(200), nullable=False)
+    transport = Column(String(30), default="")  # stdio / sse / streamable-http / http
+    source_tool = Column(String(20), nullable=False)  # claude / codex / dsh
+    source_scope = Column(String(10), nullable=False)  # global / project
+    source_project = Column(String(200), nullable=True)
+    source_path = Column(String(500), nullable=False)
+    target_tool = Column(String(20), nullable=False)
+    target_scope = Column(String(10), nullable=False)
+    target_project = Column(String(200), nullable=True)
+    status = Column(String(20), nullable=False)  # success / failed
+    detail = Column(Text, default="")
+    migrate_time = Column(DateTime, default=datetime.now)
+
+
+class McpTrash(Base):
+    """MCP 回收站条目：被替换/删除的 server 配置片段快照（含 DPAPI 加密的 env）。"""
+
+    __tablename__ = "mcp_trash"
+
+    id = Column(Integer, primary_key=True, index=True)
+    server_name = Column(String(200), nullable=False)
+    tool = Column(String(20), nullable=True)  # 来源端 claude / codex / dsh
+    scope = Column(String(10), nullable=True)  # global / project
+    project = Column(String(200), nullable=True)
+    original_path = Column(String(500), nullable=False)  # 原配置文件路径（恢复目标）
+    trash_path = Column(String(500), nullable=False)  # 回收站中的快照 json 路径
     trash_time = Column(DateTime, default=datetime.now)

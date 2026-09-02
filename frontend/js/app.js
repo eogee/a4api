@@ -47,6 +47,9 @@ layui.use(['layer', 'form', 'element'], function () {
     if (document.querySelector('form[lay-filter="config-form"] [name="target_dsh"]').checked) {
       targets.push('dsh');
     }
+    if (document.querySelector('form[lay-filter="config-form"] [name="target_zcode"]').checked) {
+      targets.push('zcode');
+    }
     var mtEl = document.querySelector('form[lay-filter="config-form"] [name="max_tokens"]');
     var mtVal = mtEl && mtEl.value !== undefined ? String(mtEl.value).trim() : '';
     return {
@@ -79,6 +82,11 @@ layui.use(['layer', 'form', 'element'], function () {
           text += s.current_dsh_model
             ? ' · dsh: ' + s.current_dsh_model
             : ' · dsh 待配置';
+        }
+        if ((c.targets || '').indexOf('zcode') !== -1) {
+          text += s.current_zcode_model
+            ? ' · ZCode: ' + s.current_zcode_model
+            : ' · ZCode 待配置';
         }
         el.textContent = text;
         el.classList.add('status-active');
@@ -279,6 +287,7 @@ layui.use(['layer', 'form', 'element'], function () {
   element.on('tab(main-tab)', function (data) {
     if (data.index === 1) loadProviders();
     else if (data.index === 2 && !skillData) loadSkills();
+    else if (data.index === 3 && !mcpData) loadMcps();
   });
 
   /* ---------- 卡片 ---------- */
@@ -288,6 +297,7 @@ layui.use(['layer', 'form', 'element'], function () {
     list.forEach(function (t) {
       if (t === 'codex') html += '<span class="target-badge target-codex">Codex</span>';
       else if (t === 'dsh') html += '<span class="target-badge target-dsh">dsh</span>';
+      else if (t === 'zcode') html += '<span class="target-badge target-zcode">ZCode</span>';
       else if (t === 'claude') html += '<span class="target-badge target-claude">Claude</span>';
     });
     return html;
@@ -340,13 +350,17 @@ layui.use(['layer', 'form', 'element'], function () {
     var dshNote = hasDsh
       ? '<p style="font-size:12px;color:#8a8e94;margin-top:10px;">dsh 配置热加载，新会话即生效</p>'
       : '';
+    var hasZcode = (targets || '').indexOf('zcode') !== -1;
+    var zcodeNote = hasZcode
+      ? '<p style="font-size:12px;color:#8a8e94;margin-top:10px;">ZCode 配置已写入（直连上游），重启 ZCode 或新建会话后生效</p>'
+      : '';
     layer.open({
       type: 1,
       title: '确认切换',
       area: ['420px', 'auto'],
       content: '<div style="padding:20px 24px;">' +
         '<p style="font-size:15px;">确定切换到「' + escapeHtml(name) + '」？</p>' +
-        restartHtml + codexNote + dshNote + '</div>',
+        restartHtml + codexNote + dshNote + zcodeNote + '</div>',
       btn: ['确认切换', '取消'],
       success: function () {
         if (hasClaude) form.render('checkbox');
@@ -418,8 +432,9 @@ layui.use(['layer', 'form', 'element'], function () {
               '<input type="checkbox" name="target_claude" title="Claude Code" lay-skin="primary" checked>' +
               '<input type="checkbox" name="target_codex" title="Codex" lay-skin="primary">' +
               '<input type="checkbox" name="target_dsh" title="dsh" lay-skin="primary">' +
+              '<input type="checkbox" name="target_zcode" title="ZCode" lay-skin="primary">' +
             '</div>' +
-            '<div class="layui-form-mid layui-word-aux" style="margin-left:110px;">Codex / dsh 需使用 OpenAI 兼容接口</div>' +
+            '<div class="layui-form-mid layui-word-aux" style="margin-left:110px;">Codex / dsh 需 OpenAI 接口；ZCode 原生支持 Anthropic 与 OpenAI 两种协议</div>' +
           '</div>' +
         '</form>';
 
@@ -451,6 +466,7 @@ layui.use(['layer', 'form', 'element'], function () {
           document.querySelector('input[name="target_claude"]').checked = targets.indexOf('claude') !== -1;
           document.querySelector('input[name="target_codex"]').checked = targets.indexOf('codex') !== -1;
           document.querySelector('input[name="target_dsh"]').checked = targets.indexOf('dsh') !== -1;
+          document.querySelector('input[name="target_zcode"]').checked = targets.indexOf('zcode') !== -1;
         }
         form.render(null, 'config-form');
         var link = document.getElementById('link-add-provider');
@@ -475,7 +491,7 @@ layui.use(['layer', 'form', 'element'], function () {
           return;
         }
         if (!data.targets) {
-          layer.msg('请至少选择一个应用目标（Claude Code / Codex / dsh）', { icon: 2 });
+          layer.msg('请至少选择一个应用目标（Claude Code / Codex / dsh / ZCode）', { icon: 2 });
           return;
         }
         if (data.max_tokens != null && (!Number.isInteger(data.max_tokens) || data.max_tokens < 1)) {
@@ -483,6 +499,7 @@ layui.use(['layer', 'form', 'element'], function () {
           return;
         }
         // Codex / dsh 需使用 OpenAI 兼容接口：保存前拦截 Anthropic 服务商 + 勾选相应目标
+        // （ZCode 原生支持 Anthropic / OpenAI 两种协议，无此限制）
         var selProvider = providers.find(function (p) { return p.id === Number(data.provider_id); });
         var needOpenai = data.targets.indexOf('codex') !== -1 || data.targets.indexOf('dsh') !== -1;
         if (needOpenai && selProvider && selProvider.api_type !== 'openai') {
@@ -667,7 +684,7 @@ layui.use(['layer', 'form', 'element'], function () {
   }
 
   /* ---------- 技能管理 ---------- */
-  var TOOL_LABEL = { claude: 'Claude', codex: 'Codex', dsh: 'dsh' };
+  var TOOL_LABEL = { claude: 'Claude', codex: 'Codex', dsh: 'dsh', zcode: 'ZCode' };
   var skillView = 'global'; // global | project
   var skillData = null;
   var migrationBusy = false; // 迁移/适配执行中：阻塞其他技能操作
@@ -682,6 +699,7 @@ layui.use(['layer', 'form', 'element'], function () {
   function endBadge(t) {
     if (t === 'codex') return '<span class="target-badge target-codex">Codex</span>';
     if (t === 'dsh') return '<span class="target-badge target-dsh">dsh</span>';
+    if (t === 'zcode') return '<span class="target-badge target-zcode">ZCode</span>';
     return '<span class="target-badge target-claude">Claude</span>';
   }
 
@@ -741,8 +759,8 @@ layui.use(['layer', 'form', 'element'], function () {
       box.classList.add('card-grid');
       var gs = skillData.global || [];
       if (!gs.length) {
-        box.innerHTML = '<div class="empty-tip">三个工具的全局目录还没有任何 skill<br>' +
-          '<span style="font-size:12px;">~/.claude/skills · ~/.codex/skills · ~/.dsh/skills</span></div>';
+        box.innerHTML = '<div class="empty-tip">四个工具的全局目录还没有任何 skill<br>' +
+          '<span style="font-size:12px;">~/.claude/skills · ~/.codex/skills · ~/.dsh/skills · ~/.zcode/skills</span></div>';
         return;
       }
       box.innerHTML = gs.map(function (g) { return skillGroupCard(g, 'global', ''); }).join('');
@@ -760,7 +778,7 @@ layui.use(['layer', 'form', 'element'], function () {
         '<div class="proj-head">' +
           '<span class="proj-name">' + escapeHtml(p.project) + '</span>' +
           '<span class="proj-root" title="' + escapeHtml(p.root) + '">' + escapeHtml(p.root) + '</span>' +
-          '<button class="layui-btn layui-btn-xs" data-sk="adapt" data-project="' + escapeHtml(p.project) + '">一键适配三端</button>' +
+          '<button class="layui-btn layui-btn-xs" data-sk="adapt" data-project="' + escapeHtml(p.project) + '">一键适配四端</button>' +
         '</div>';
       if (!p.skills.length) {
         html += '<div class="empty-tip proj-empty">该项目下没有 skill</div>';
@@ -804,11 +822,13 @@ layui.use(['layer', 'form', 'element'], function () {
 
   /* ---- 迁移进度层：串行执行迁移任务并展示进度条 ----
    * 执行期间全屏遮罩且弹窗不可关闭，禁止用户进行其他点击与操作。
-   * tasks: [{ label, source, targets }]，每个任务对应一次 /skills/migrate 调用；
+   * tasks: [{ label, source, targets }]，每个任务对应一次 migrate 调用；
+   * endpoint 为迁移 API 路径（skills / mcp 二选一，默认技能）；
    * 单个任务失败不中断后续任务，最终由 done(agg) 汇总提示。 */
-  function runMigrateTasks(tasks, title, done) {
+  function runMigrateTasks(tasks, title, done, endpoint) {
     var total = tasks.length;
     var agg = { migrated: 0, skipped: 0, conflicts_trashed: 0, failed: 0 };
+    var migratePath = endpoint || '/skills/migrate';
     migrationBusy = true;
 
     function setProgress(finished, label, taskFailed) {
@@ -830,7 +850,7 @@ layui.use(['layer', 'form', 'element'], function () {
       }
       var t = tasks[i];
       setProgress(i, t.label, false);
-      apiSend('/skills/migrate', 'POST', { sources: [t.source], targets: t.targets })
+      apiSend(migratePath, 'POST', { sources: [t.source], targets: t.targets })
         .then(function (res) {
           agg.migrated += res.migrated || 0;
           agg.skipped += res.skipped || 0;
@@ -900,11 +920,11 @@ layui.use(['layer', 'form', 'element'], function () {
         }).join('') + '</div>';
       html += '<div class="mig-section"><div class="mig-title">复制到哪些位置？（目标端同名旧版将移入回收站）</div>';
       html += '<div class="mig-group"><span class="mig-group-name">全局</span>';
-      ['claude', 'codex', 'dsh'].forEach(function (t) { html += destRow('global', t, '', src); });
+      ['claude', 'codex', 'dsh', 'zcode'].forEach(function (t) { html += destRow('global', t, '', src); });
       html += '</div>';
       (skillData.projects || []).forEach(function (p) {
         html += '<div class="mig-group"><span class="mig-group-name">' + escapeHtml(p.project) + '</span>';
-        ['claude', 'codex', 'dsh'].forEach(function (t) { html += destRow('project', t, p.project, src); });
+        ['claude', 'codex', 'dsh', 'zcode'].forEach(function (t) { html += destRow('project', t, p.project, src); });
         html += '</div>';
       });
       html += '</div></div>';
@@ -967,14 +987,14 @@ layui.use(['layer', 'form', 'element'], function () {
     });
   }
 
-  /* ---- 项目一键适配三端：把项目内所有 skill 补齐到缺失的端 ---- */
+  /* ---- 项目一键适配四端：把项目内所有 skill 补齐到缺失的端 ---- */
   function adaptProject(project) {
     if (migrationBusy) return;
     var p = (skillData.projects || []).find(function (x) { return x.project === project; });
     if (!p || !p.skills.length) { layer.msg('该项目没有可迁移的 skill', { icon: 0 }); return; }
     var plan = []; // [{source, targets[], name, missing[]}]
     p.skills.forEach(function (g) {
-      var missing = ['claude', 'codex', 'dsh'].filter(function (t) { return g.ends.indexOf(t) === -1; });
+      var missing = ['claude', 'codex', 'dsh', 'zcode'].filter(function (t) { return g.ends.indexOf(t) === -1; });
       if (!missing.length || !g.copies.length) return;
       plan.push({
         source: { scope: 'project', tool: g.copies[0].tool, project: project, name: g.name },
@@ -983,13 +1003,13 @@ layui.use(['layer', 'form', 'element'], function () {
         missing: missing
       });
     });
-    if (!plan.length) { layer.msg('该项目的 skill 已在 Claude / Codex / dsh 三端齐全', { icon: 1 }); return; }
+    if (!plan.length) { layer.msg('该项目的 skill 已在 Claude / Codex / dsh / ZCode 四端齐全', { icon: 1 }); return; }
     var lines = plan.map(function (x) {
       return '<li>「' + escapeHtml(x.name) + '」→ ' + x.missing.map(function (t) { return TOOL_LABEL[t]; }).join('、') + '</li>';
     }).join('');
     layer.open({
       type: 1,
-      title: '一键适配三端 · ' + escapeHtml(project),
+      title: '一键适配四端 · ' + escapeHtml(project),
       area: ['440px', 'auto'],
       content: '<div style="padding:18px 24px;"><p style="margin-bottom:10px;">将按以下计划复制补齐（源端保留）：</p><ul class="adapt-list">' + lines + '</ul></div>',
       btn: ['执行迁移', '取消'],
@@ -1003,7 +1023,7 @@ layui.use(['layer', 'form', 'element'], function () {
             label: '「' + x.name + '」→ ' + x.missing.map(function (t) { return TOOL_LABEL[t]; }).join('、')
           };
         });
-        runMigrateTasks(tasks, '一键适配三端 · ' + project + '（源端保留）', function (res) {
+        runMigrateTasks(tasks, '一键适配四端 · ' + project + '（源端保留）', function (res) {
           if (!res.failed) {
             layer.msg('适配完成：已迁移 ' + res.migrated + ' 处', { icon: 1, time: 2600 });
           } else {
@@ -1173,6 +1193,380 @@ layui.use(['layer', 'form', 'element'], function () {
     });
   }
 
+  /* ---------- MCP 管理 ---------- */
+  var mcpView = 'global'; // global | project
+  var mcpData = null;
+
+  function transportBadge(t) {
+    var cls = t === 'stdio' ? 'target-claude' : (t === 'sse' ? 'target-codex' : 'target-dsh');
+    return '<span class="target-badge ' + cls + '">' + escapeHtml(t) + '</span>';
+  }
+
+  function mcpCopyLine(c) {
+    var kind = c.transport === 'stdio'
+      ? escapeHtml(c.command || '')
+      : escapeHtml(c.url || '');
+    var envKeys = Object.keys(c.env || {});
+    var envHint = envKeys.length
+      ? '<span class="mcp-env-hint" title="' + escapeHtml(envKeys.join(', ')) + '">env×' + envKeys.length + '</span>'
+      : '';
+    return '<div class="skill-copy" data-copy>' +
+      '<span class="target-badge target-' + c.tool + '">' + TOOL_LABEL[c.tool] + '</span>' +
+      '<span class="skill-copy-path" title="' + escapeHtml(c.path || '') + '">' + kind + '</span>' +
+      envHint +
+      '<span class="skill-copy-actions">' +
+        '<a href="javascript:;" data-mc="detail" data-tool="' + escapeHtml(c.tool) + '" data-scope="' + c.scope + '" data-project="' + escapeHtml(c.project || '') + '" data-name="' + escapeHtml(c.name) + '">详情</a>' +
+        '<a href="javascript:;" data-mc="delcopy" data-tool="' + escapeHtml(c.tool) + '" data-scope="' + c.scope + '" data-project="' + escapeHtml(c.project || '') + '" data-name="' + escapeHtml(c.name) + '">删除</a>' +
+      '</span>' +
+    '</div>';
+  }
+
+  function mcpGroupCard(g, scope, project) {
+    var dup = g.end_count > 1
+      ? '<span class="target-badge dup-badge">' + g.end_count + ' 端存在</span>'
+      : '';
+    var badges = g.ends.map(endBadge).join('');
+    var copies = g.copies.map(mcpCopyLine).join('');
+    var desc = '<div class="card-meta skill-desc">' + transportBadge(g.transport) + '</div>';
+    return '' +
+      '<div class="config-card skill-card" data-group="' + escapeHtml(g.name) + '" data-scope="' + scope + '" data-project="' + escapeHtml(project || '') + '">' +
+        '<div class="skill-badges">' + badges + dup + '</div>' +
+        '<div class="card-name">' + escapeHtml(g.name) + '</div>' +
+        desc +
+        '<div class="skill-copies">' + copies + '</div>' +
+        '<div class="card-actions">' +
+          '<button class="layui-btn layui-btn-sm layui-btn-normal" data-mc="migrate">迁移…</button>' +
+          '<button class="layui-btn layui-btn-sm" data-mc="preview" data-name="' + escapeHtml(g.name) + '">预览</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function renderMcps() {
+    var box = document.getElementById('mcp-content');
+    if (!mcpData) { box.innerHTML = '<div class="empty-tip">加载中…</div>'; return; }
+    if (mcpView === 'global') {
+      box.classList.add('card-grid');
+      var gs = mcpData.global || [];
+      if (!gs.length) {
+        box.innerHTML = '<div class="empty-tip">四端还未配置任何 MCP server<br>' +
+          '<span style="font-size:12px;">~/.claude.json · ~/.codex/config.toml · cordis.patch.yml · ~/.zcode/cli/config.json</span></div>';
+        return;
+      }
+      box.innerHTML = gs.map(function (g) { return mcpGroupCard(g, 'global', ''); }).join('');
+      return;
+    }
+    var projects = mcpData.projects || [];
+    box.classList.remove('card-grid');
+    if (!projects.length) {
+      box.innerHTML = '<div class="empty-tip">未发现任何含 MCP server 的项目</div>';
+      return;
+    }
+    var html = '';
+    projects.forEach(function (p) {
+      html += '<div class="proj-block">' +
+        '<div class="proj-head">' +
+          '<span class="proj-name">' + escapeHtml(p.project) + '</span>' +
+          '<span class="proj-root" title="' + escapeHtml(p.root) + '">' + escapeHtml(p.root) + '</span>' +
+        '</div>';
+      if (!p.servers.length) {
+        html += '<div class="empty-tip proj-empty">该项目下没有 MCP server</div>';
+      } else {
+        html += '<div class="proj-grid">' + p.servers.map(function (g) {
+          return mcpGroupCard(g, 'project', p.project);
+        }).join('') + '</div>';
+      }
+      html += '</div>';
+    });
+    box.innerHTML = html;
+  }
+
+  function findMcpGroup(scope, project, name) {
+    if (!mcpData) return null;
+    var pool = [];
+    if (scope === 'global') pool = mcpData.global || [];
+    else {
+      (mcpData.projects || []).forEach(function (p) {
+        if (p.project === project) pool = p.servers || [];
+      });
+    }
+    var lowered = String(name || '').toLowerCase();
+    return pool.find(function (g) { return g.name.toLowerCase() === lowered; }) || null;
+  }
+
+  function loadMcps() {
+    document.getElementById('mcp-content').innerHTML = '<div class="empty-tip">加载中…</div>';
+    apiGet('/mcp/discover').then(function (d) {
+      mcpData = d;
+      renderMcps();
+    }).catch(function (e) {
+      document.getElementById('mcp-content').innerHTML =
+        '<div class="empty-tip">加载失败：' + escapeHtml(e.message) + '</div>';
+    });
+  }
+
+  function setMcpView(view) {
+    mcpView = view;
+    document.querySelectorAll('#mcp-scope-seg .seg-btn').forEach(function (b) {
+      b.classList.toggle('seg-active', b.getAttribute('data-view') === view);
+    });
+    if (mcpData) renderMcps();
+  }
+
+  /* ---- MCP 迁移弹窗：指定源副本与目标（传输不兼容的目标自动禁用） ---- */
+  function openMcpMigrateDialog(scope, project, name) {
+    if (migrationBusy) return;
+    var g = findMcpGroup(scope, project, name);
+    if (!g) { layer.msg('数据已过期，请刷新后重试', { icon: 2 }); return; }
+
+    function destRow(destScope, tool, destProject, srcCopy) {
+      var isSrc = !!srcCopy
+        && destScope === srcCopy.scope
+        && tool === srcCopy.tool
+        && (destProject || '') === (srcCopy.project || '');
+      var supported = (mcpData.capability || {})[tool] || [];
+      var compat = supported.indexOf(srcCopy.transport) !== -1;
+      var disabled = isSrc || !compat;
+      var hint = !compat ? ' title="' + TOOL_LABEL[tool] + ' 端不支持 ' + srcCopy.transport + ' 传输"' : '';
+      return '<label class="mig-item' + (isSrc ? ' mig-disabled' : '') + '"' + hint + '>' +
+        '<input type="checkbox" data-mig="' + destScope + '|' + tool + '|' + (destProject || '') + '"' + (disabled ? ' disabled' : '') + '>' +
+        '<span class="target-badge target-' + tool + '">' + TOOL_LABEL[tool] + '</span>' +
+        '<span class="mig-place">' + (destScope === 'global' ? '全局' : escapeHtml(destProject)) + '</span>' +
+        (!compat ? '<span class="mig-unsupported">不支持 ' + escapeHtml(srcCopy.transport) + '</span>' : '') +
+      '</label>';
+    }
+
+    function buildPanel(srcIdx) {
+      var src = g.copies[srcIdx] || {};
+      var html = '<div class="mig-panel">' +
+        '<div class="mig-section"><div class="mig-title">迁移哪一份？</div>' +
+        g.copies.map(function (c, i) {
+          return '<label class="mig-item">' +
+            '<input type="radio" name="mig-src" value="' + i + '"' + (i === srcIdx ? ' checked' : '') + '>' +
+            '<span class="target-badge target-' + c.tool + '">' + TOOL_LABEL[c.tool] + '</span>' +
+            '<span class="mig-place" title="' + escapeHtml(c.path || '') + '">' + scopeLabel(c.scope, c.project) + '</span>' +
+          '</label>';
+        }).join('') + '</div>';
+      html += '<div class="mig-section"><div class="mig-title">复制到哪些位置？（目标端同名旧版将移入回收站）</div>';
+      html += '<div class="mig-group"><span class="mig-group-name">全局</span>';
+      ['claude', 'codex', 'dsh', 'zcode'].forEach(function (t) { html += destRow('global', t, '', src); });
+      html += '</div>';
+      (mcpData.projects || []).forEach(function (p) {
+        html += '<div class="mig-group"><span class="mig-group-name">' + escapeHtml(p.project) + '</span>';
+        ['claude', 'codex', 'zcode'].forEach(function (t) { html += destRow('project', t, p.project, src); }); // dsh 无项目级 MCP
+        html += '</div>';
+      });
+      html += '</div></div>';
+      return html;
+    }
+
+    function bindPanel(panel) {
+      panel.addEventListener('change', function (e) {
+        if (e.target.name !== 'mig-src') return;
+        var idx = Number(e.target.value);
+        var scroll = panel.scrollTop;
+        var holder = document.createElement('div');
+        holder.innerHTML = buildPanel(idx);
+        var newPanel = holder.firstChild;
+        panel.parentNode.replaceChild(newPanel, panel);
+        bindPanel(newPanel);
+        newPanel.scrollTop = scroll;
+      });
+    }
+
+    layer.open({
+      type: 1,
+      title: '迁移 MCP「' + escapeHtml(name) + '」（复制，保留原件）',
+      area: ['520px', 'auto'],
+      content: buildPanel(0),
+      btn: ['开始迁移', '取消'],
+      success: function () {
+        bindPanel(document.querySelector('.mig-panel'));
+      },
+      yes: function (index) {
+        var srcIdx = 0;
+        document.querySelectorAll('input[name="mig-src"]').forEach(function (r, i) { if (r.checked) srcIdx = i; });
+        var src = g.copies[srcIdx];
+        var targets = [];
+        document.querySelectorAll('[data-mig]:checked').forEach(function (cb) {
+          var parts = cb.getAttribute('data-mig').split('|');
+          targets.push({ scope: parts[0], tool: parts[1], project: parts[2] === '' ? null : parts[2] });
+        });
+        if (!targets.length) { layer.msg('请至少勾选一个迁移目标', { icon: 2 }); return; }
+        layer.close(index);
+        var sourceDesc = { scope: src.scope, tool: src.tool, project: src.project, name: g.name };
+        var tasks = targets.map(function (t) {
+          return {
+            source: sourceDesc,
+            targets: [t],
+            label: '「' + g.name + '」→ ' + TOOL_LABEL[t.tool] + ' · ' + scopeLabel(t.scope, t.project)
+          };
+        });
+        runMigrateTasks(tasks, '迁移 MCP「' + g.name + '」（源端保留）', function (res) {
+          migrationSummaryToast(res);
+          loadMcps();
+        }, '/mcp/migrate');
+      }
+    });
+  }
+
+  /* ---- MCP 详情 / 预览 ---- */
+  function mcpDetail(copy) {
+    var q = '?tool=' + encodeURIComponent(copy.tool) +
+      '&scope=' + copy.scope +
+      '&name=' + encodeURIComponent(copy.name) +
+      (copy.project ? '&project=' + encodeURIComponent(copy.project) : '');
+    apiGet('/mcp/content' + q).then(function (c) {
+      var lines = [];
+      lines.push('<p class="skill-fm-line"><b>端</b>：' + escapeHtml(TOOL_LABEL[c.tool] || c.tool) + ' · ' + scopeLabel(c.scope, c.project) + '</p>');
+      lines.push('<p class="skill-fm-line"><b>传输</b>：' + escapeHtml(c.transport || '') + '</p>');
+      if (c.transport === 'stdio') {
+        lines.push('<p class="skill-fm-line"><b>命令</b>：<code>' + escapeHtml(c.command || '') + '</code></p>');
+        if (c.args && c.args.length) lines.push('<p class="skill-fm-line"><b>参数</b>：<code>' + escapeHtml(c.args.join(' ')) + '</code></p>');
+      } else {
+        lines.push('<p class="skill-fm-line"><b>URL</b>：<code>' + escapeHtml(c.url || '') + '</code></p>');
+      }
+      var envKeys = Object.keys(c.env || {});
+      if (envKeys.length) {
+        lines.push('<p class="skill-fm-line"><b>环境变量</b>（已脱敏）：</p>' +
+          '<div class="mcp-env-list">' + envKeys.map(function (k) {
+            return '<div class="mcp-env-row"><code>' + escapeHtml(k) + '</code><span class="mcp-env-val">' + escapeHtml(c.env[k]) + '</span></div>';
+          }).join('') + '</div>');
+      }
+      lines.push('<p class="skill-fm-line"><b>配置文件</b>：<code>' + escapeHtml(c.path || '') + '</code></p>');
+      layer.open({
+        type: 1,
+        title: 'MCP · ' + escapeHtml(c.name),
+        area: ['620px', 'auto'],
+        content: '<div class="skill-preview"><div class="skill-fm">' + lines.join('') + '</div></div>',
+        btn: ['关闭']
+      });
+    }).catch(function (e) { layer.msg(e.message, { icon: 2 }); });
+  }
+
+  function previewMcp(name) {
+    // 预览取该分组的第一个副本详情
+    var box = document.querySelector('#mcp-content .config-card[data-group="' + CSS.escape(name) + '"]');
+    if (!box) return;
+    var copyEl = box.querySelector('[data-mc="detail"]');
+    if (!copyEl) return;
+    mcpDetail({
+      tool: copyEl.getAttribute('data-tool'),
+      scope: copyEl.getAttribute('data-scope'),
+      project: copyEl.getAttribute('data-project'),
+      name: copyEl.getAttribute('data-name')
+    });
+  }
+
+  function confirmDeleteMcpCopy(copy) {
+    layer.confirm('确定删除这个 MCP server？<br><span style="font-size:12px;color:#8a8e94;">将从配置中移除并移入回收站，30 天内可恢复</span>',
+      { title: '删除确认' }, function (index) {
+        apiSend('/mcp/delete', 'POST', copy).then(function (res) {
+          layer.close(index);
+          layer.msg(res.message || '已移入回收站', { icon: 1 });
+          loadMcps();
+        }).catch(function (e) { layer.msg(e.message, { icon: 2 }); });
+      });
+  }
+
+  /* ---- MCP 回收站 ---- */
+  function openMcpTrash() {
+    layer.open({
+      type: 1,
+      title: 'MCP 回收站（30 天内可恢复）',
+      area: ['700px', 'auto'],
+      content: '<div id="mcp-trash-box" style="padding:14px 18px;max-height:480px;overflow-y:auto;">加载中…</div>',
+      btn: ['刷新状态', '关闭'],
+      success: function () { loadMcpTrashBox(); },
+      yes: function () { loadMcpTrashBox(); }
+    });
+  }
+
+  function loadMcpTrashBox() {
+    apiGet('/mcp/trash').then(function (r) {
+      var box = document.getElementById('mcp-trash-box');
+      if (!box) return;
+      var html = '';
+      if (r.purged_expired) {
+        html += '<p class="trash-notice">已自动清理 ' + r.purged_expired + ' 条超过 30 天的过期条目</p>';
+      }
+      if (!r.items.length) {
+        html += '<div class="empty-tip" style="padding:40px 0;">回收站是空的</div>';
+      } else {
+        html += '<table class="layui-table trash-table"><thead><tr>' +
+          '<th>名称</th><th>原位置</th><th>剩余天数</th><th class="trash-col-actions">操作</th>' +
+        '</tr></thead><tbody>' + r.items.map(function (it) {
+          var place = (it.scope === 'global' ? '全局' : ('项目「' + escapeHtml(it.project || '') + '」'))
+            + ' · ' + (TOOL_LABEL[it.tool] || it.tool || '?');
+          return '<tr>' +
+            '<td>' + escapeHtml(it.name) + '</td>' +
+            '<td class="trash-origin" title="' + escapeHtml(it.original_path) + '">' + place + '</td>' +
+            '<td>' + it.days_left + ' 天</td>' +
+            '<td class="trash-col-actions"><button class="layui-btn layui-btn-xs" data-mcp-trash="restore" data-id="' + it.id + '">恢复</button>' +
+            '<button class="layui-btn layui-btn-xs layui-btn-danger layui-btn-primary" data-mcp-trash="purge" data-id="' + it.id + '">彻底删除</button></td>' +
+          '</tr>';
+        }).join('') + '</tbody></table>';
+      }
+      box.innerHTML = html;
+    }).catch(function (e) {
+      var box = document.getElementById('mcp-trash-box');
+      if (box) box.innerHTML = '<div class="empty-tip">加载失败：' + escapeHtml(e.message) + '</div>';
+    });
+  }
+
+  function mcpTrashAction(action, id) {
+    var req;
+    if (action === 'restore') {
+      req = apiSend('/mcp/trash/' + id + '/restore', 'POST', {});
+    } else {
+      req = fetch(API + '/mcp/trash/' + id, { method: 'DELETE' }).then(function (r) {
+        if (!r.ok) return r.json().then(function (j) { throw new Error(j.detail || '请求失败'); });
+        return r.json();
+      });
+    }
+    req.then(function () {
+      layer.msg(action === 'restore' ? '已恢复到原位置' : '已彻底删除', { icon: 1 });
+      loadMcpTrashBox();
+      loadMcps();
+    }).catch(function (e) { layer.msg(e.message, { icon: 2 }); });
+  }
+
+  /* ---- MCP 迁移日志 ---- */
+  function openMcpMigrationLogs() {
+    layer.open({
+      type: 1,
+      title: 'MCP 迁移日志',
+      area: ['760px', 'auto'],
+      content: '<div id="mcpmiglog-box" style="padding:14px 18px;max-height:480px;overflow-y:auto;">加载中…</div>',
+      btn: ['关闭'],
+      success: function () {
+        apiGet('/mcp/migrations').then(function (list) {
+          var box = document.getElementById('mcpmiglog-box');
+          if (!box) return;
+          if (!list.length) {
+            box.innerHTML = '<div class="empty-tip" style="padding:40px 0;">暂无迁移记录</div>';
+            return;
+          }
+          box.innerHTML = '<table class="layui-table trash-table"><thead><tr>' +
+            '<th>时间</th><th>Server</th><th>传输</th><th>源</th><th>目标</th><th>结果</th>' +
+          '</tr></thead><tbody>' + list.map(function (m) {
+            return '<tr>' +
+              '<td>' + escapeHtml(m.migrate_time) + '</td>' +
+              '<td>' + escapeHtml(m.server_name) + '</td>' +
+              '<td>' + escapeHtml(m.transport || '') + '</td>' +
+              '<td>' + escapeHtml(m.source) + '</td>' +
+              '<td>' + escapeHtml(m.target) + '</td>' +
+              '<td class="' + (m.status === 'success' ? 'mig-ok' : 'mig-fail') + '">' +
+                (m.status === 'success' ? '成功' : '失败：' + escapeHtml(m.detail)) + '</td>' +
+            '</tr>';
+          }).join('') + '</tbody></table>';
+        }).catch(function (e) {
+          var box = document.getElementById('mcpmiglog-box');
+          if (box) box.innerHTML = '<div class="empty-tip">加载失败：' + escapeHtml(e.message) + '</div>';
+        });
+      }
+    });
+  }
+
   /* ---------- 事件绑定 ---------- */
   document.getElementById('btn-add').addEventListener('click', function () {
     openForm(null);
@@ -1240,6 +1634,44 @@ layui.use(['layer', 'form', 'element'], function () {
     var btn = e.target.closest('[data-trash]');
     if (!btn) return;
     trashAction(btn.getAttribute('data-trash'), Number(btn.getAttribute('data-id')));
+  });
+
+  /* ---------- MCP 管理事件 ---------- */
+  document.querySelectorAll('#mcp-scope-seg .seg-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () { setMcpView(btn.getAttribute('data-view')); });
+  });
+
+  document.getElementById('btn-mcp-refresh').addEventListener('click', function () { loadMcps(); });
+  document.getElementById('btn-mcp-trash').addEventListener('click', openMcpTrash);
+  document.getElementById('btn-mcp-migrations').addEventListener('click', openMcpMigrationLogs);
+
+  document.getElementById('mcp-content').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-mc]');
+    if (!btn) return;
+    var mc = btn.getAttribute('data-mc');
+    var copy = {
+      tool: btn.getAttribute('data-tool'),
+      scope: btn.getAttribute('data-scope'),
+      project: btn.getAttribute('data-project'),
+      name: btn.getAttribute('data-name')
+    };
+    if (mc === 'detail') mcpDetail(copy);
+    else if (mc === 'delcopy') confirmDeleteMcpCopy(copy);
+    else if (mc === 'preview') previewMcp(btn.getAttribute('data-name'));
+    else if (mc === 'migrate') {
+      var card = btn.closest('.skill-card');
+      openMcpMigrateDialog(
+        card.getAttribute('data-scope'),
+        card.getAttribute('data-project') || '',
+        card.getAttribute('data-group')
+      );
+    }
+  });
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-mcp-trash]');
+    if (!btn) return;
+    mcpTrashAction(btn.getAttribute('data-mcp-trash'), Number(btn.getAttribute('data-id')));
   });
 
   /* ---------- 初始化 ---------- */

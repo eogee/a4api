@@ -89,9 +89,17 @@ def ensure_schema() -> None:
     from sqlalchemy import text
 
     # Skill 管理两张表的补建：对旧库（create_all 时模型尚不存在的情况）兜底
-    from .models import SkillMigration, SkillTrash
+    from .models import McpMigration, McpTrash, SkillMigration, SkillTrash
 
-    Base.metadata.create_all(bind=engine, tables=[SkillMigration.__table__, SkillTrash.__table__])
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[
+            SkillMigration.__table__,
+            SkillTrash.__table__,
+            McpMigration.__table__,
+            McpTrash.__table__,
+        ],
+    )
 
     with engine.begin() as conn:
         cols = {row[1] for row in conn.execute(text("PRAGMA table_info(configurations)"))}

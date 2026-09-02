@@ -2,9 +2,9 @@
 __pycache__/
 *.py[cod]
 .venv/
+*.egg-info/
 
 # 运行时数据
-backend/database/*.db
 backend/database/
 
 # 打包产物
@@ -17,17 +17,37 @@ dist/
 .vscode/
 
 
-# agents
+# agents（含密钥与本地脚本，整体不入库）
 .agents/
 .claude/
 .codex/
 .cursor/
 .impeccable/
-.dsh
+.dsh/
 
 
 # 开发文档
+docs/
 开发文档.md
 
 DESIGN.md
 PRODUCT.md
+
+# cache
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.uv-cache/
+.coverage
+htmlcov/
+
+# 环境变量与凭据（避免误提交密钥）
+.env
+.env.*
+
+# 系统与临时文件
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.log
+*.tmp
