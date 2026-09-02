@@ -1,28 +1,22 @@
-# a4api v0.2.2
+# a4api v0.2.3
 
 ## 更新内容
 
-### 新增：ZCode（智谱 Agentic 开发环境）全量适配，四端统一管理
-- **API 切换**：新增 `zcode` 目标。ZCode 原生支持 Anthropic / OpenAI 两种协议，切换时直连写入 CLI（`~/.zcode/cli/config.json`）与桌面端（`~/.zcode/v2/config.json`）两份配置，无需本地翻译代理、不受服务商协议限制；provider 条目以 `a4api_p<id>` 托管、切换时整体替换旧条目并保留用户手工添加的 provider，hooks 等其它键原样保留。
-- **技能管理**：三端 → 四端，纳入 ZCode（全局 `~/.zcode/skills` / 项目级 `<项目>/.zcode/skills`），发现、聚合标注、跨端迁移、「一键适配四端」补齐、回收站全链路支持。
-- **MCP 管理**：新增 zcode 端（`~/.zcode/cli/config.json` / 项目 `.zcode/config.json` 的 `mcp.servers`，支持 stdio / sse / http），传输能力矩阵、快照回收站与脱敏机制全覆盖。
+### 新增：MCP 安装与 JSON 批量导入
+- **安装 MCP**：可在任意应用端（Claude Code / Codex / dsh / ZCode）**从零新建** server——选择目标应用（写入该应用全局配置）+ 传输类型（stdio / http / sse，按目标端能力自动过滤，如 Codex 仅 stdio），填写命令 / 参数 / 环境变量或地址 / 请求头。
+- **JSON 批量导入**：把已有的 MCP 配置片段直接粘贴进来（兼容「mcpServers」顶层、名称作键的 server 字典、单对象三种格式），一次装多个，逐条独立——单条失败（同名冲突、目标端不支持该传输等）不中断其余，并逐条报告成功/失败。
+- 安装走各端原生渲染与原子写（目标同名已存在会明确拒绝，可改用迁移或先删除），既有 server 与其它配置键原样保留；安装后立即出现在卡片列表，并自动匹配功能介绍。
+- 全新 server 可附带简介（description），功能介绍可用：自定义说明、配置内 carry 简介、内置简介库自动匹配（按 server 名/命令关键词）、npm 联动解析。
 
-### 新增：MCP 四端管理模块
-- 自动发现 Claude Code、Codex、dsh、ZCode 的全局与项目级 MCP server 并聚合标注；跨端迁移按**传输能力矩阵**严格校验（claude/zcode 支持 stdio/sse/http，codex 仅 stdio，dsh 支持 stdio/streamable-http 且无项目级），不兼容组合整对失败并留日志、不静默降级。
-- 目标端同名 server 先快照进回收站再写入；快照中的 `env` / `headers` 用 DPAPI 加密落盘、恢复时解密；发现与预览接口对敏感字段一律脱敏，API 永不回传明文。
-- ZCode 端 schema 严格（未知键会被丢弃），写入只输出其规范字段（`type`/`command`/`args`/`cwd`/`env`/`url`/`headers`/`enabled`/`timeoutMs`）。
+### 修复
+- 修复 layui layer 在 type:1 内联内容时关闭按钮被放进 `.layui-layer-content` 的渲染怪癖，弹窗关闭按钮归位到标题栏。
 
-### 修复：MCP 迁移同配置多 server 去重误跳过
-- 同一配置文件内多个 server 迁移到同一目标时，旧去重键只含文件路径不含 server 名，第二个 server 会被误跳过；现按「server 名 + 源路径 + 目标」去重，整批迁移正确完成。
-
-### 文档
-- README 重构：叙事重心转为「四端技能 / MCP 管理中枢」，技能管理与 MCP 管理各成章节（含四端目录位置表与传输能力矩阵），API 切换弱化为独立简章节；开发文档与技能手动测试文档同步更新至四端。
-
-### 测试
-- 新增/更新 zcode 与 MCP 四端用例（切换双配置写入、协议自由、托管条目替换、技能存取、MCP 发现/迁移/传输矩阵/schema），后端测试套件 141 个全部通过。
+### 文档与测试
+- README「安装 MCP」章节更新：改为任意应用表述 + 补充 JSON 批量导入说明。
+- `test_mcp_manager.py` 新增 JSON 导入解析（三格式兼容 / 非法输入）、批量安装与部分失败、API 路由用例。
 
 ## 校验
 
-- 安装包：`a4api-setup-0.2.2.exe`
-- **SHA256：`A3C6BD2F5D1F08D97840558D7D7CB2B96CF1A9E7BFA47F4DF4CA1C75907C24D5`**
+- 安装包：`a4api-setup-0.2.3.exe`
+- **SHA256：`584745240A5C48918A59D70B4342922B8F70A2B72FA943FDF895599711CDB0E2`**
 - 建议下载后核对校验值，确保文件完整未被篡改。
