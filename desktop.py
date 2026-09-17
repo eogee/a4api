@@ -74,6 +74,39 @@ from backend.app.main import app  # noqa: E402
 from backend.app.singleton import acquire  # noqa: E402
 
 
+class DesktopApi:
+    """暴露给前端 JS 的原生对话框能力（window.pywebview.api.*）。
+
+    仅在 pywebview 桌面环境存在；纯浏览器打开时前端自动退回手动输入路径。
+    """
+
+    def select_folder(self):
+        """弹出系统文件夹选择对话框，返回所选路径；取消返回 None。"""
+        import webview as _webview
+
+        win = _webview.windows[0] if _webview.windows else None
+        if win is None:
+            return None
+        result = win.create_file_dialog(_webview.FileDialog.FOLDER)
+        return result[0] if result else None
+
+    def select_file(self):
+        """弹出系统文件选择对话框（单选），返回所选路径；取消返回 None。"""
+        import webview as _webview
+
+        win = _webview.windows[0] if _webview.windows else None
+        if win is None:
+            return None
+        try:
+            result = win.create_file_dialog(
+                _webview.FileDialog.OPEN, allow_multiple=False,
+                file_types=("所有文件 (*.*)", "所有文件 (*.*)"),
+            )
+        except Exception:
+            result = win.create_file_dialog(_webview.FileDialog.OPEN)
+        return result[0] if result else None
+
+
 def find_free_port() -> int:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(("127.0.0.1", 0))
@@ -109,9 +142,17 @@ def main() -> None:
         width=1000,
         height=720,
         min_size=(800, 560),
+        js_api=DesktopApi(),
     )
     webview.start()
-    # 窗口关闭后强制退出，避免后台线程挂住进程
+    # 窗口关闭后先回收本地推理引擎（llama-server 子进程），再强制退出，
+    # 避免后台线程/子进程挂住进程
+    try:
+        from backend.app.llama import runtime as llama_runtime
+
+        llama_runtime.shutdown()
+    except Exception:
+        pass
     os._exit(0)
 
 

@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from . import models  # noqa: F401  # 注册模型建表
-from .api.v1 import configs, mcp, providers, skills, switch, update
+from .api.v1 import configs, llama, mcp, providers, skills, switch, update
 from .database import Base, engine, ensure_schema
 from .logging_config import setup_logging
 from .seed import seed_providers
@@ -45,6 +45,7 @@ def create_app() -> FastAPI:
     app.include_router(skills.router, prefix="/api/v1", tags=["skills"])
     app.include_router(mcp.router, prefix="/api/v1", tags=["mcp"])
     app.include_router(update.router, prefix="/api/v1", tags=["update"])
+    app.include_router(llama.router, prefix="/api/v1", tags=["llama"])
 
     # 前端静态资源：开发/桌面运行时由后端统一托管
     frontend_dir = _frontend_dir()
