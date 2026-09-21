@@ -124,9 +124,10 @@ layui.use(['layer', 'form', 'element'], function () {
   }
 
   /* ---------- 入口：懒加载 ---------- */
-  element.on('tab(main-tab)', function (data) {
-    // 与 app.js 一致按 index 判断：configs=0 / providers=1 / skills=2 / mcp=3 / llama=4
-    var isLlama = data.index === 4;
+  // 不能再用 element.on('tab(main-tab)')：layui 对同一 filter 是覆盖式注册，
+  // 会把 app.js 的技能/MCP 懒加载监听器顶掉，这里改听 app.js 派发的自定义事件。
+  window.addEventListener('main-tab-changed', function (e) {
+    var isLlama = e.detail.index === 4;
     active = isLlama;
     if (isLlama && !loaded) {
       loaded = true;

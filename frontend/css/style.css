@@ -1258,3 +1258,7 @@ body {
 /* layui primary 复选框容器（向导摘要下方） */
 .llama-form-plain { margin-top: 12px; }
 .llama-form-row .layui-form { display: inline-block; }
+
+/* 技能迁移：自选项目文件夹（选目录按钮 + 所选路径展示） */
+.mig-custom-row { width: 100%; cursor: default; }
+.mig-custom-row [data-mig-pick] { flex: none; }

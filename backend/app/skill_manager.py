@@ -148,6 +148,17 @@ def save_project_roots(roots: list) -> list[str]:
     return cleaned
 
 
+def _safe_is_dir(path: Path) -> bool:
+    """is_dir 的容错版：Windows 11 24H2 会对「不受信任装入点」（如部分 junction）
+    抛 WinError 448 且为间歇性，pathlib 对该错误码不归为可忽略，会直接上抛。
+    单个异常目录不应炸掉整个发现/枚举流程，这里吞掉并记日志。"""
+    try:
+        return path.is_dir()
+    except OSError as e:
+        logger.warning("无法访问 %s：%s（已跳过）", path, e)
+        return False
+
+
 def project_dirs(roots: list[str] | None = None) -> list[dict]:
     """枚举项目：每个项目根下的一级子目录视为独立项目（跳过点开头目录）。"""
     result: list[dict] = []
@@ -161,7 +172,7 @@ def project_dirs(roots: list[str] | None = None) -> list[dict]:
         except OSError:
             continue
         for child in children:
-            if not child.is_dir() or child.name.startswith("."):
+            if not _safe_is_dir(child) or child.name.startswith("."):
                 continue
             key = os.path.normcase(child)
             if key in seen:
@@ -214,7 +225,11 @@ def read_skill(skill_dir: Path, full: bool = False) -> dict | None:
     full=True 时附带 frontmatter 原始 dict、正文与全文，供内容预览使用。
     """
     md = skill_dir / SKILL_FILE
-    if not md.is_file():
+    try:
+        if not md.is_file():
+            return None
+    except OSError as e:
+        logger.warning("无法访问 %s：%s（已跳过）", md, e)
         return None
     try:
         # utf-8-sig 兼容带 BOM 的文件（Windows 编辑器常见）
@@ -246,7 +261,7 @@ def _scan_root(root: Path, tool: str, scope: str, project: str | None) -> list[d
     except OSError:
         return skills
     for child in children:
-        if not child.is_dir() or child.name.startswith("."):
+        if not _safe_is_dir(child) or child.name.startswith("."):
             continue
         info = read_skill(child)
         if info is None:
@@ -335,14 +350,22 @@ def locate_skill(path_text: str, require_skill_md: bool = True) -> Path:
         target = Path(str(path_text)).resolve()
     except (OSError, ValueError) as e:
         raise ValueError(f"无效的 skill 路径：{e}") from e
-    if not target.is_dir():
-        raise ValueError(f"skill 目录不存在：{target}")
+    try:
+        if not target.is_dir():
+            raise ValueError(f"skill 目录不存在：{target}")
+    except OSError as e:
+        raise ValueError(f"skill 目录无法访问：{e}") from e
     known = [_normcase(r.resolve()) for r in all_known_skill_roots()]
     parent = _normcase(target.parent)
     if parent not in known:
         raise ValueError("该路径不在任何已知 skill 存放区中，拒绝操作")
-    if require_skill_md and not (target / SKILL_FILE).is_file():
-        raise ValueError(f"该目录不是合法的 skill bundle（缺少 {SKILL_FILE}）")
+    if require_skill_md:
+        try:
+            has_md = (target / SKILL_FILE).is_file()
+        except OSError as e:
+            raise ValueError(f"skill 目录无法访问：{e}") from e
+        if not has_md:
+            raise ValueError(f"该目录不是合法的 skill bundle（缺少 {SKILL_FILE}）")
     return target
 
 
@@ -373,6 +396,19 @@ def _root_for(scope: str, tool: str, project: str | None) -> Path:
                 return project_skill_roots(proj["root"])[tool]
         raise ValueError(f"未找到项目：{project}")
     raise ValueError(f"未知 scope：{scope}")
+
+
+def custom_project_skills_root(path_text: str | None, tool: str) -> Path:
+    """自选项目文件夹的目标 skill 根：文件夹必须已存在（绝对路径），
+    其下 .{tool}/skills 缺失没关系——迁移时 mkdir(parents=True) 自动创建。"""
+    if tool not in TOOLS:
+        raise ValueError(f"未知工具：{tool}")
+    p = Path(path_text or "")
+    if not p.is_absolute():
+        raise ValueError(f"项目文件夹必须是绝对路径：{path_text}")
+    if not _safe_is_dir(p):
+        raise ValueError(f"项目文件夹不存在或不是目录：{path_text}")
+    return p / f".{tool}" / "skills"
 
 
 # ---------------- 回收站 ----------------
@@ -531,6 +567,12 @@ def _find_source(descriptor: dict) -> tuple[Path, dict]:
         raise ValueError("迁移源缺少 skill 名称")
     if scope == "global":
         entries = _scan_root(_root_for("global", tool, None), tool, "global", None)
+    elif scope == "project" and descriptor.get("project_root"):
+        # 源端同样支持自选项目文件夹（与目标端对称）
+        entries = _scan_root(
+            custom_project_skills_root(descriptor["project_root"], tool),
+            tool, "project", None,
+        )
     elif scope == "project":
         found = None
         for proj in project_dirs():
@@ -561,7 +603,7 @@ def _trash_existing_conflicts(db, dest_root: Path, incoming_name: str, incoming_
     if not dest_root.is_dir():
         return 0
     for child in sorted(dest_root.iterdir(), key=lambda p: p.name.lower()):
-        if not child.is_dir():
+        if not _safe_is_dir(child):
             continue
         meta = read_skill(child)
         same_dir = child.name.lower() == lowered_dir
@@ -613,9 +655,12 @@ def migrate(db, sources: list[dict], targets: list[dict]) -> dict:
         path, entry = _find_source(s)
         resolved_sources.append((path, entry))
 
-    # 目标合法性预校验：未知工具 / 项目 / scope 在任何复制发生前整体失败
+    # 目标合法性预校验：未知工具 / 项目 / scope / 自选路径 在任何复制发生前整体失败
     for t in targets:
-        _root_for(t.get("scope"), t.get("tool"), t.get("project"))
+        if t.get("project_root"):
+            custom_project_skills_root(t.get("project_root"), t.get("tool"))
+        else:
+            _root_for(t.get("scope"), t.get("tool"), t.get("project"))
 
     results = []
     migrated = skipped = conflicts = failed = 0
@@ -624,34 +669,46 @@ def migrate(db, sources: list[dict], targets: list[dict]) -> dict:
     for s_idx, (src, entry) in enumerate(resolved_sources):
         s_desc = sources[s_idx]
         for t in targets:
-            t_scope = t.get("scope")
             t_tool = t.get("tool")
-            t_project = t.get("project")
-            if t_scope not in ("global", "project"):
-                raise ValueError(f"未知 scope：{t_scope}")
             if t_tool not in TOOLS:
                 raise ValueError(f"未知工具：{t_tool}")
-            if t_scope == "global":
-                dest_key = ("global", t_tool, "")
+            t_root_text = (t.get("project_root") or "").strip()
+            custom = bool(t_root_text)
+            if custom:
+                t_scope = "project"
+                t_project = t_root_text[:200]
+                dest_key = ("project", t_tool, str(Path(t_root_text)))
+                target_label = f"项目「{t_root_text}」· {TOOL_LABELS[t_tool]}"
             else:
-                dest_key = ("project", t_tool, t_project or "")
-            target_label = (
-                f"全局 · {TOOL_LABELS[t_tool]}"
-                if t_scope == "global"
-                else f"项目「{t_project}」· {TOOL_LABELS[t_tool]}"
-            )
+                t_scope = t.get("scope")
+                t_project = t.get("project")
+                if t_scope not in ("global", "project"):
+                    raise ValueError(f"未知 scope：{t_scope}")
+                dest_key = (
+                    ("global", t_tool, "")
+                    if t_scope == "global"
+                    else ("project", t_tool, t_project or "")
+                )
+                target_label = (
+                    f"全局 · {TOOL_LABELS[t_tool]}"
+                    if t_scope == "global"
+                    else f"项目「{t_project}」· {TOOL_LABELS[t_tool]}"
+                )
 
             pair_key = (str(src), "|".join(dest_key))
             if pair_key in seen_pairs:
                 continue
             seen_pairs.add(pair_key)
 
-            # 目标位置与源完全一致时跳过
-            if (
+            # 目标位置与源完全一致时跳过（自选路径按物理目录比较）
+            same_place = (
                 (s_desc.get("scope") == t_scope)
                 and (s_desc.get("tool") == t_tool)
                 and ((s_desc.get("project") or "") == dest_key[2])
-            ):
+            )
+            if custom and src.parent == Path(dest_key[2]) / f".{t_tool}" / "skills":
+                same_place = True
+            if same_place:
                 skipped += 1
                 results.append(
                     {
@@ -674,7 +731,10 @@ def migrate(db, sources: list[dict], targets: list[dict]) -> dict:
                 "target_project": t_project,
             }
             try:
-                dest_root = _root_for(t_scope, t_tool, t_project)
+                if custom:
+                    dest_root = Path(dest_key[2]) / f".{t_tool}" / "skills"
+                else:
+                    dest_root = _root_for(t_scope, t_tool, t_project)
                 dest_root.mkdir(parents=True, exist_ok=True)
                 dest = dest_root / src.name
                 trashed = _trash_existing_conflicts(db, dest_root, entry["name"], src.name)

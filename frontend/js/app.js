@@ -284,7 +284,11 @@ layui.use(['layer', 'form', 'element'], function () {
       });
   }
 
+  // layui 对同一 filter 的 element.on 是覆盖式注册（后注册者替换先注册者），
+  // 因此本文件是唯一注册 tab(main-tab) 的地方；其他模块（llama.js 等）
+  // 通过下面的 DOM 自定义事件感知 tab 切换。
   element.on('tab(main-tab)', function (data) {
+    window.dispatchEvent(new CustomEvent('main-tab-changed', { detail: { index: data.index } }));
     if (data.index === 1) loadProviders();
     else if (data.index === 2 && !skillData) loadSkills();
     else if (data.index === 3 && !mcpData) loadMcps();
@@ -890,10 +894,36 @@ layui.use(['layer', 'form', 'element'], function () {
   }
 
   /* ---- 迁移弹窗：指定源副本与任意（工具×项目/全局）目标 ---- */
+  /* 原生选文件夹：桌面端走 pywebview 原生对话框；浏览器端退化为输入框。
+   * 返回 Promise<string|null>，取消时 resolve(null)。 */
+  function pickFolderAny() {
+    var wv = window.pywebview;
+    function call(api) {
+      return Promise.resolve(api.select_folder()).then(function (p) { return p || null; });
+    }
+    if (wv && wv.api) return call(wv.api);
+    if (wv) {
+      return new Promise(function (resolve) {
+        window.addEventListener('pywebviewready', function () {
+          resolve(call(window.pywebview.api));
+        }, { once: true });
+      });
+    }
+    return new Promise(function (resolve) {
+      layer.prompt({ title: '输入项目文件夹的完整路径', formType: 0 }, function (val, idx) {
+        layer.close(idx);
+        resolve((val || '').trim() || null);
+      });
+    });
+  }
+
   function openMigrateDialog(scope, project, name) {
     if (migrationBusy) return;
     var g = findGroup(scope, project, name);
     if (!g) { layer.msg('数据已过期，请刷新后重试', { icon: 2 }); return; }
+
+    var CUSTOM = '__custom__';
+    var customRoot = '';  // 自选项目文件夹（跨源切换保持）
 
     function destRow(destScope, tool, destProject, srcCopy) {
       var isSrc = !!srcCopy
@@ -927,23 +957,58 @@ layui.use(['layer', 'form', 'element'], function () {
         ['claude', 'codex', 'dsh', 'zcode'].forEach(function (t) { html += destRow('project', t, p.project, src); });
         html += '</div>';
       });
+      // 自选项目文件夹：不要求已被发现（可能还没有任何 skill）；
+      // 目标 <文件夹>/.{tool}/skills 不存在时迁移会自动创建
+      html += '<div class="mig-group"><span class="mig-group-name">自选项目文件夹</span>' +
+        '<span style="font-size:11px;color:#b9bdc3;">目录缺失自动创建</span>' +
+        '<div class="mig-item mig-custom-row">' +
+          '<button type="button" class="layui-btn layui-btn-xs" data-mig-pick>选择文件夹</button>' +
+          '<span class="mig-place" data-mig-custom-path title="' + escapeHtml(customRoot || '') + '">' +
+            (customRoot ? escapeHtml(customRoot) : '未选择') + '</span>' +
+        '</div>';
+      ['claude', 'codex', 'dsh', 'zcode'].forEach(function (t) {
+        html += '<label class="mig-item' + (customRoot ? '' : ' mig-disabled') + '">' +
+          '<input type="checkbox" data-mig="project|' + t + '|' + CUSTOM + '"' + (customRoot ? '' : ' disabled') + '>' +
+          '<span class="target-badge target-' + t + '">' + TOOL_LABEL[t] + '</span>' +
+          '<span class="mig-place" title="' + escapeHtml(customRoot || '') + '">所选文件夹</span>' +
+        '</label>';
+      });
+      html += '</div>';
       html += '</div></div>';
       return html;
+    }
+
+    function rebuildPanel(panel, srcIdx) {
+      var scroll = panel.scrollTop;
+      var holder = document.createElement('div');
+      holder.innerHTML = buildPanel(srcIdx);
+      var newPanel = holder.firstChild;
+      panel.parentNode.replaceChild(newPanel, panel);
+      bindPanel(newPanel);
+      newPanel.scrollTop = scroll;
+      return newPanel;
     }
 
     function bindPanel(panel) {
       panel.addEventListener('change', function (e) {
         if (e.target.name !== 'mig-src') return;
-        var idx = Number(e.target.value);
         // 换源后整体重建面板，让禁用态与新源保持一致
-        var scroll = panel.scrollTop;
-        var holder = document.createElement('div');
-        holder.innerHTML = buildPanel(idx);
-        var newPanel = holder.firstChild;
-        panel.parentNode.replaceChild(newPanel, panel);
-        bindPanel(newPanel);
-        newPanel.scrollTop = scroll;
+        rebuildPanel(panel, Number(e.target.value));
       });
+      panel.addEventListener('click', function (e) {
+        if (!e.target.closest('[data-mig-pick]')) return;
+        pickFolderAny().then(function (p) {
+          if (!p) return;
+          customRoot = p;
+          rebuildPanel(panel, currentSrcIdx(panel));
+        });
+      });
+    }
+
+    function currentSrcIdx(panel) {
+      var idx = 0;
+      panel.querySelectorAll('input[name="mig-src"]').forEach(function (r, i) { if (r.checked) idx = i; });
+      return idx;
     }
 
     layer.open({
@@ -961,22 +1026,32 @@ layui.use(['layer', 'form', 'element'], function () {
         radios.forEach(function (r, i) { if (r.checked) srcIdx = i; });
         var src = g.copies[srcIdx];
         var targets = [];
+        var wantCustom = false;
         document.querySelectorAll('[data-mig]:checked').forEach(function (cb) {
           var parts = cb.getAttribute('data-mig').split('|');
+          if (parts[2] === CUSTOM) { wantCustom = true; return; }
           targets.push({
             scope: parts[0], tool: parts[1],
             project: parts[2] === '' ? null : parts[2]
           });
         });
+        if (wantCustom) {
+          if (!customRoot) { layer.msg('请先选择项目文件夹', { icon: 2 }); return; }
+          ['claude', 'codex', 'dsh', 'zcode'].forEach(function (t) {
+            var cb = document.querySelector('[data-mig="project|' + t + '|' + CUSTOM + '"]:checked');
+            if (cb) targets.push({ scope: 'project', tool: t, project: null, project_root: customRoot });
+          });
+        }
         if (!targets.length) { layer.msg('请至少勾选一个迁移目标', { icon: 2 }); return; }
         layer.close(index);
         var sourceDesc = { scope: src.scope, tool: src.tool, project: src.project, name: g.name };
         // 每个目标一个任务，进度条按目标粒度推进
         var tasks = targets.map(function (t) {
+          var place = t.project_root ? '自选「' + t.project_root + '」' : scopeLabel(t.scope, t.project);
           return {
             source: sourceDesc,
             targets: [t],
-            label: '「' + g.name + '」→ ' + TOOL_LABEL[t.tool] + ' · ' + scopeLabel(t.scope, t.project)
+            label: '「' + g.name + '」→ ' + TOOL_LABEL[t.tool] + ' · ' + place
           };
         });
         runMigrateTasks(tasks, '迁移「' + g.name + '」（源端保留）', function (res) {

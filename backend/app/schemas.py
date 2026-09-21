@@ -120,6 +120,8 @@ class SkillTargetIn(BaseModel):
     scope: str = Field(pattern="^(global|project)$")
     tool: str = Field(pattern="^(claude|codex|dsh|zcode)$")
     project: Optional[str] = None
+    # 自选项目文件夹（绝对路径）：提供时优先于 project 名，.{tool}/skills 缺失会自动创建
+    project_root: Optional[str] = None
 
 
 class SkillMigrateIn(BaseModel):

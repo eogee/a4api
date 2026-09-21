@@ -117,7 +117,11 @@ def find_free_port() -> int:
 
 def start_server(port: int) -> None:
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+
+    # 不用 uvicorn 默认日志配置：它对 uvicorn.error 设 propagate=False，
+    # 窗口化打包下 stderr 丢弃，接口 500 的堆栈会完全不可见。
+    # log_config=None 让错误沿 root logger 落到 ~/.a4api/logs/a4api.log。
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning", log_config=None)
 
 
 def main() -> None:
