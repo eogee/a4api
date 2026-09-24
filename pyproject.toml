@@ -1,6 +1,6 @@
 [project]
 name = "a4api"
-version = "0.3.1"
+version = "0.3.2"
 description = "AI 编程工具管理台 + 本地大模型推理控制台"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,6 +13,7 @@ dependencies = [
     "tomli_w>=1.0",
     "cryptography>=42",
     "pyyaml>=6.0",
+    "python-multipart>=0.0.9",
 ]
 
 [dependency-groups]

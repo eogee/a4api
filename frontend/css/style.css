@@ -10,6 +10,9 @@ body {
   font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
   color: #1c1e21;
   -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ---------- 顶部（柜台台面） ---------- */
@@ -35,10 +38,9 @@ body {
 }
 
 .app-mark {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #16baaa;
+  width: 22px;
+  height: 22px;
+  display: block;
   flex: none;
 }
 
@@ -111,6 +113,8 @@ body {
 
 /* ---------- 主体 ---------- */
 .app-main {
+  flex: 1 0 auto;
+  width: 100%; /* flex 纵向布局下 auto 边距会禁用 stretch，必须显式定宽，否则 auto-fill 网格坍缩成单列 */
   max-width: 1120px;
   margin: 28px auto;
   padding: 0 28px;
@@ -156,6 +160,143 @@ body {
 }
 
 .app-main .layui-tab-content { padding-top: 24px; }
+
+/* ---------- 页脚（店面门楣：官网与联系方式） ---------- */
+.app-footer {
+  flex: none;
+  margin-top: auto;
+  position: sticky; /* 常驻视口底部：内容超屏时滚动也始终可见 */
+  bottom: 0;
+  z-index: 10;
+  padding: 16px 28px;
+  border-top: 1px solid #e2e8e8;
+  background: #eefafa;
+}
+
+.footer-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12px;
+  line-height: 1;
+  color: #8a8e94;
+  user-select: none;
+}
+
+.footer-brand {
+  font-weight: 600;
+  color: #3d4044;
+  letter-spacing: .01em;
+}
+
+.footer-version {
+  margin-left: 6px;
+  font-weight: 400;
+  color: #8a8e94;
+}
+
+/* 版本号可点击：虚线下划线提示「版本与更新」入口 */
+.app-footer a.footer-version {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.footer-sep {
+  opacity: .55;
+}
+
+.app-footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #8a8e94;
+  text-decoration: none;
+  transition: color .2s ease;
+}
+
+.app-footer a:hover {
+  color: #16baaa;
+}
+
+.footer-icon {
+  flex: none;
+}
+
+/* ---------- 反馈弹窗：截图拖拽区与缩略图 ---------- */
+.fb-dropzone {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1.5px dashed #dce2e2;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 13px;
+  color: #8a8e94;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color .2s ease, background .2s ease, color .2s ease;
+}
+
+.fb-dropzone:hover, .fb-dropzone.dz-over {
+  border-color: #16baaa;
+  background: #ebf9f8;
+  color: #118f83;
+}
+
+.fb-dropzone .dz-file {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #a7aaae;
+}
+
+.fb-thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.fb-thumbs:empty { display: none; }
+
+.fb-thumb {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #e2e8e8;
+  aspect-ratio: 1;
+  background: #f2f6f6;
+}
+
+.fb-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.fb-thumb-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  line-height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(28, 30, 33, .65);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.fb-thumb-del:hover {
+  background: #c03a2f;
+}
 
 /* ---------- 卡片网格 ---------- */
 .card-grid {
@@ -1139,6 +1280,7 @@ body {
 @media (max-width: 720px) {
   .app-header { padding: 14px 16px; gap: 12px; }
   .app-main { margin: 20px auto; padding: 0 16px; }
+  .app-footer { padding: 14px 16px; }
   .app-title { font-size: 18px; }
   .proxy-label { display: none; }
   .card-grid { grid-template-columns: repeat(auto-fill, minmax(100%, 1fr)); }

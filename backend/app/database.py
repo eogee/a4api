@@ -126,6 +126,19 @@ def ensure_schema() -> None:
                 )
             )
 
+        # 反馈表：v0.3.1 起改为「直接邮件送达」结构（截图/环境/日志/送达标志）；
+        # 旧库的 issue_text / channel 列不再使用，SQLite 不便删列，保留不碍事
+        fcols = {row[1] for row in conn.execute(text("PRAGMA table_info(feedback)"))}
+        if fcols:  # 表已存在（旧结构）→ 补新列；新库由 create_all 直接建全
+            if "env_info" not in fcols:
+                conn.execute(text("ALTER TABLE feedback ADD COLUMN env_info TEXT NOT NULL DEFAULT ''"))
+            if "log_excerpt" not in fcols:
+                conn.execute(text("ALTER TABLE feedback ADD COLUMN log_excerpt TEXT NOT NULL DEFAULT ''"))
+            if "image_count" not in fcols:
+                conn.execute(text("ALTER TABLE feedback ADD COLUMN image_count INTEGER NOT NULL DEFAULT 0"))
+            if "emailed" not in fcols:
+                conn.execute(text("ALTER TABLE feedback ADD COLUMN emailed BOOLEAN NOT NULL DEFAULT 0"))
+
 
 @event.listens_for(engine, "connect")
 def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):

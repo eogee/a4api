@@ -122,10 +122,34 @@ def _write_version_json(version: str) -> Path:
     return p
 
 
+def _sync_changelog() -> None:
+    """把 release_body.md 同步为 frontend/changelog.md，随包内嵌供「版本与更新」弹窗展示。
+
+    发布流程每次重写 release_body.md；打包前同步一次，保证应用内展示的
+    更新说明与本次发布一致。文件不存在只提示、不阻断打包。
+    「校验」段（安装包 SHA256）仅属于发布页——exe 无法内嵌自身的哈希，
+    同步时剥掉，应用内不展示占位/失效的校验值。
+    """
+    src = ROOT / "release_body.md"
+    dst = ROOT / "frontend" / "changelog.md"
+    if not src.exists():
+        print("提示：release_body.md 不存在，跳过更新日志同步")
+        return
+    text = src.read_text(encoding="utf-8")
+    cutoff = text.find("## 校验")
+    if cutoff != -1:
+        text = text[:cutoff].rstrip() + "\n"
+    if dst.exists() and dst.read_text(encoding="utf-8") == text:
+        return
+    dst.write_text(text, encoding="utf-8")
+    print(f"已同步更新日志：{dst}")
+
+
 def _run_pyinstaller(onefile: bool, version: str) -> None:
     frontend = ROOT / "frontend"
     resources = ROOT / "resources"
     ico = _ensure_icon(resources)
+    _sync_changelog()
     sep = os.pathsep
     version_json = _write_version_json(version)
 

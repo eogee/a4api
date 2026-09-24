@@ -1,7 +1,7 @@
 """SQLAlchemy 数据模型。"""
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -122,3 +122,36 @@ class McpTrash(Base):
     original_path = Column(String(500), nullable=False)  # 原配置文件路径（恢复目标）
     trash_path = Column(String(500), nullable=False)  # 回收站中的快照 json 路径
     trash_time = Column(DateTime, default=datetime.now)
+
+
+class Feedback(Base):
+    """应用内反馈留档：Bug 报告 / 功能需求，直接邮件送达开发者（eogee@qq.com）。
+
+    反馈先落本地库再尽力发信（emailed 标志记录送达结果），截图随行存
+    blob（≤10 张 × ≤1MB，同 EoListen），邮件以附件形式把截图带给开发者。
+    """
+
+    __tablename__ = "feedback"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String(10), nullable=False)  # bug / feature
+    content = Column(Text, nullable=False)  # 问题描述（用户原文）
+    contact = Column(String(200), default="")  # 联系方式（选填）
+    env_info = Column(Text, default="")  # 提交时采集的环境信息（多行文本）
+    log_excerpt = Column(Text, default="")  # 用户勾选附带的日志尾部片段
+    image_count = Column(Integer, default=0)
+    emailed = Column(Boolean, default=False)  # 邮件是否发送成功
+    created_at = Column(DateTime, default=datetime.now)
+
+
+class FeedbackImage(Base):
+    """反馈截图：seq 为弹窗内的展示序号（1 起），blob 上限 1MB 见 api/v1/feedback.py。"""
+
+    __tablename__ = "feedback_images"
+
+    id = Column(Integer, primary_key=True, index=True)
+    feedback_id = Column(Integer, ForeignKey("feedback.id"), nullable=False)
+    seq = Column(Integer, nullable=False)
+    filename = Column(String(200), default="")
+    mime = Column(String(50), default="image/png")
+    data = Column(LargeBinary, nullable=False)

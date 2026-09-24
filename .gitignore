@@ -52,3 +52,8 @@ Desktop.ini
 .DS_Store
 *.log
 *.tmp
+# 反馈邮件凭据（私有，不入库；缺失时反馈仅入库不发邮件）
+backend/app/mail_secrets.py
+
+# logo 设计过程产物（定稿已落在 resources/ 与 frontend/）
+/logo/

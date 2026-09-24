@@ -84,6 +84,7 @@ class SwitchResult(BaseModel):
 
 
 class StatusOut(BaseModel):
+    version: Optional[str] = None
     active_config: Optional[ConfigOut] = None
     settings_file_exists: bool
     current_model: Optional[str] = None
@@ -190,3 +191,13 @@ class McpImportIn(BaseModel):
     tool: str = Field(pattern="^(claude|codex|dsh|zcode)$")
     project: Optional[str] = None
     config_json: str
+
+
+# ---------------- 应用内反馈 ----------------
+
+
+class FeedbackSubmitted(BaseModel):
+    """反馈提交结果：本地留档 id + 邮件是否送达。"""
+
+    id: int
+    emailed: bool

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 官方网站 eogee.com
+    url: https://eogee.com
+    about: 官网与更多作品
+  - name: 使用疑问 / 交流反馈
+    url: https://github.com/eogee/a4api/blob/master/README.md
+    about: 使用说明见 README；应用内「需求与反馈」可一键生成带环境信息与日志的反馈文本；也可通过 QQ 3886370035 / 微信 eogee2022 联系

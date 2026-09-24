@@ -66,6 +66,9 @@ layui.use(['layer', 'form', 'element'], function () {
   function loadStatus() {
     apiGet('/status').then(function (s) {
       var el = document.getElementById('status-text');
+      if (s.version) {
+        document.getElementById('footer-version').textContent = 'v' + s.version;
+      }
       if (s.active_config) {
         var c = s.active_config;
         var pname = c.provider ? c.provider.name : ('#' + c.provider_id);
@@ -1971,6 +1974,219 @@ layui.use(['layer', 'form', 'element'], function () {
     var btn = e.target.closest('[data-mcp-trash]');
     if (!btn) return;
     mcpTrashAction(btn.getAttribute('data-mcp-trash'), Number(btn.getAttribute('data-id')));
+  });
+
+  /* ---------- 需求与反馈 ----------
+     参考项目内 eolisten 的反馈机制（结构化内容 + 留档），适配本地应用：
+     提交时组装成 Issue 文本（自动带环境信息 / 可选日志）→ 本地留档 →
+     复制到剪贴板 → 用户点击 GitHub / Gitee 链接粘贴提交。 */
+  function copyText(text) {
+    function legacyCopy() {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) { /* 剪贴板不可用时用户可手动复制 */ }
+      document.body.removeChild(ta);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).catch(legacyCopy);
+    }
+    legacyCopy();
+    return Promise.resolve();
+  }
+
+  /* 截图状态：随弹窗打开重置，关闭时回收预览 URL */
+  var fbFiles = [];
+  var FB_MAX_IMAGES = 10;
+  var FB_IMAGE_MAX_BYTES = 1 * 1024 * 1024;
+
+  function fbResetFiles() {
+    fbFiles.forEach(function (f) { URL.revokeObjectURL(f._url); });
+    fbFiles = [];
+  }
+
+  function fbAddFiles(list) {
+    var rejected = [];
+    Array.prototype.forEach.call(list, function (f) {
+      if (fbFiles.length >= FB_MAX_IMAGES) { rejected.push(f.name + '：最多 ' + FB_MAX_IMAGES + ' 张'); return; }
+      if (!f.type || f.type.indexOf('image/') !== 0) { rejected.push(f.name + '：不是图片'); return; }
+      if (f.size > FB_IMAGE_MAX_BYTES) { rejected.push(f.name + '：超过 1MB'); return; }
+      f._url = URL.createObjectURL(f);
+      fbFiles.push(f);
+    });
+    fbRenderThumbs();
+    if (rejected.length) layer.msg(rejected.join('；'), { icon: 0 });
+  }
+
+  function fbRenderThumbs() {
+    var wrap = document.getElementById('fb-thumbs');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    fbFiles.forEach(function (f, i) {
+      var cell = document.createElement('div');
+      cell.className = 'fb-thumb';
+      var img = document.createElement('img');
+      img.src = f._url;
+      img.alt = f.name;
+      var del = document.createElement('button');
+      del.className = 'fb-thumb-del';
+      del.type = 'button';
+      del.textContent = '×';
+      del.title = '移除 ' + f.name;
+      del.addEventListener('click', function () {
+        URL.revokeObjectURL(f._url);
+        fbFiles.splice(i, 1);
+        fbRenderThumbs();
+      });
+      cell.appendChild(img);
+      cell.appendChild(del);
+      wrap.appendChild(cell);
+    });
+  }
+
+  function openFeedback() {
+    apiGet('/feedback/context').then(function (ctx) {
+      var kind = 'bug';
+      fbResetFiles();
+      layer.open({
+        type: 1,
+        title: '需求与反馈',
+        area: ['520px', 'auto'],
+        end: function () { fbResetFiles(); },
+        content: '<div style="padding:16px 20px;">' +
+          '<div class="seg-control" id="fb-kind-seg">' +
+            '<button type="button" class="seg-btn seg-active" data-kind="bug">Bug 报告</button>' +
+            '<button type="button" class="seg-btn" data-kind="feature">功能需求</button>' +
+          '</div>' +
+          '<textarea id="fb-content" class="layui-textarea" rows="5" maxlength="2000" style="margin-top:12px;" ' +
+            'placeholder="Bug 请写清「做了什么 → 实际结果 → 预期结果」；需求请写清使用场景与期望方案"></textarea>' +
+          '<div class="fb-dropzone dropzone" id="fb-dz">' +
+            '<span>点击选择或拖入问题截图</span>' +
+            '<span class="dz-file">选填 · 最多 10 张 · 单张不超过 1MB</span>' +
+          '</div>' +
+          '<input type="file" id="fb-files" accept="image/*" multiple style="display:none">' +
+          '<div id="fb-thumbs" class="fb-thumbs"></div>' +
+          '<input id="fb-contact" class="layui-input" style="margin-top:8px" maxlength="200" ' +
+            'placeholder="联系方式：邮箱 / QQ / 微信（选填，方便回访）" autocomplete="off">' +
+          '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#8a8e94;margin-top:10px;user-select:none;">' +
+            '<input type="checkbox" id="fb-include-log"' + (ctx.log_exists ? '' : ' disabled') + '>' +
+            '<span>附带最近 120 行日志（' + escapeHtml(ctx.log_path) + '）</span>' +
+          '</label>' +
+          '<p style="font-size:12px;color:#8a8e94;margin-top:8px;line-height:1.7;">' +
+            '提交后反馈与截图将直接发送给开发者；自动附带系统环境信息。' +
+            '<b>请勿包含 API Key 等敏感信息</b>，日志建议先自查。' +
+            '也可直接联系：QQ 3886370035 ｜ 微信 eogee2022。</p>' +
+        '</div>',
+        btn: ['提交反馈', '取消'],
+        yes: function (index) {
+          var content = document.getElementById('fb-content').value.trim();
+          if (content.length < 5) {
+            layer.msg('请先填写问题描述（至少 5 个字）', { icon: 0 });
+            return;
+          }
+          var btn = document.querySelector('.layui-layer-btn .layui-layer-btn0');
+          btn.disabled = true;
+          btn.textContent = '正在提交…';
+          var fd = new FormData();
+          fd.append('kind', kind);
+          fd.append('content', content);
+          fd.append('contact', document.getElementById('fb-contact').value.trim());
+          fd.append('include_log', document.getElementById('fb-include-log').checked ? '1' : '0');
+          fbFiles.forEach(function (f) { fd.append('images', f, f.name); });
+          fetch(API + '/feedback', { method: 'POST', body: fd }).then(function (r) {
+            return r.json().then(function (j) {
+              btn.disabled = false;
+              btn.textContent = '提交反馈';
+              if (!r.ok) { layer.msg(j.detail || '提交失败，请稍后重试', { icon: 2 }); return; }
+              layer.close(index);
+              layer.msg(j.emailed ? '反馈已提交，感谢您的支持！' : '反馈已保存，但邮件发送失败（网络问题不影响留档）',
+                { icon: j.emailed ? 1 : 0 });
+            });
+          }).catch(function () {
+            btn.disabled = false;
+            btn.textContent = '提交反馈';
+            layer.msg('网络异常，提交失败', { icon: 2 });
+          });
+        },
+        success: function () {
+          document.querySelectorAll('#fb-kind-seg .seg-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              document.querySelectorAll('#fb-kind-seg .seg-btn').forEach(function (b) { b.classList.remove('seg-active'); });
+              btn.classList.add('seg-active');
+              kind = btn.getAttribute('data-kind');
+            });
+          });
+          var dz = document.getElementById('fb-dz');
+          var input = document.getElementById('fb-files');
+          dz.addEventListener('click', function () { input.click(); });
+          dz.addEventListener('dragover', function (e) { e.preventDefault(); dz.classList.add('dz-over'); });
+          dz.addEventListener('dragleave', function () { dz.classList.remove('dz-over'); });
+          dz.addEventListener('drop', function (e) {
+            e.preventDefault();
+            dz.classList.remove('dz-over');
+            if (e.dataTransfer.files.length) fbAddFiles(e.dataTransfer.files);
+          });
+          input.addEventListener('change', function () {
+            if (input.files.length) fbAddFiles(input.files);
+            input.value = '';
+          });
+        }
+      });
+    }).catch(function (e) {
+      layer.msg(e.message || '加载失败', { icon: 2 });
+    });
+  }
+
+  document.getElementById('btn-feedback').addEventListener('click', openFeedback);
+
+  /* ---------- 版本与更新：点击页脚版本号打开 ---------- */
+  function openVersionDialog() {
+    layer.open({
+      type: 1,
+      title: '版本与更新',
+      // 固定高度：area 用 auto 时 layer 按初始「加载中」高度定位，changelog
+      // 异步撑高后不再重算，弹窗会偏离垂直居中
+      area: ['700px', '560px'],
+      content: '<div style="padding:16px 20px;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">' +
+        '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex:none;">' +
+          '<span id="ver-current" style="font-size:14px;font-weight:600;color:#3d4044;">当前版本 ' +
+            escapeHtml(document.getElementById('footer-version').textContent || '') + '</span>' +
+          '<button class="layui-btn layui-btn-normal layui-btn-sm" id="btn-version-check">检查更新</button>' +
+          '<a class="update-link" style="font-size:12px;" href="https://github.com/eogee/a4api/releases" target="_blank" rel="noopener">完整发布说明（GitHub Releases）</a>' +
+        '</div>' +
+        '<div id="ver-notes" class="update-notes" style="margin-top:14px;flex:1 1 auto;min-height:0;max-height:none;overflow-y:auto;">加载中…</div>' +
+      '</div>',
+      success: function () {
+        document.getElementById('btn-version-check').addEventListener('click', function () {
+          checkUpdate(false);
+        });
+        fetch('changelog.md').then(function (r) {
+          if (!r.ok) throw new Error('changelog.md ' + r.status);
+          return r.text();
+        }).then(function (md) {
+          var box = document.getElementById('ver-notes');
+          if (box) box.innerHTML = renderMarkdown(md);
+        }).catch(function () {
+          var box = document.getElementById('ver-notes');
+          if (box) box.innerHTML = '<p style="color:#8a8e94;font-size:13px;">暂无更新说明，可点击上方链接查看 GitHub Releases。</p>';
+        });
+      }
+    });
+  }
+
+  document.getElementById('footer-version').addEventListener('click', openVersionDialog);
+
+  /* 页脚联系方式：点击复制（QQ 号 / 微信号） */
+  document.querySelectorAll('.footer-copy').forEach(function (el) {
+    el.addEventListener('click', function () {
+      var label = el.getAttribute('data-copy');
+      copyText(label).then(function () {
+        layer.msg('已复制：' + label, { icon: 1 });
+      });
+    });
   });
 
   /* ---------- 初始化 ---------- */

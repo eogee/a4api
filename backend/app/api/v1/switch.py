@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ... import config_manager, crud, proxy_standalone, schemas
+from ... import config_manager, crud, proxy_standalone, schemas, version as app_version
 from ...crypto import decrypt_text
 from ...database import get_db
 from ...process import is_claude_running, restart_claude
@@ -22,6 +22,7 @@ def get_status(db: Session = Depends(get_db)):
     dsh_model, dsh_provider = config_manager.read_dsh_selection()
     zcode_model, zcode_provider = config_manager.read_zcode_selection()
     return schemas.StatusOut(
+        version=app_version.current_version(),
         active_config=active,
         settings_file_exists=config_manager.settings_path().exists(),
         current_model=current.get("model"),
