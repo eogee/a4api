@@ -2,6 +2,7 @@
 
 全部通过 tmp_path + monkeypatch 隔离路径，绝不触碰真实用户目录。
 """
+import os
 import pathlib
 from datetime import datetime, timedelta
 
@@ -57,6 +58,13 @@ def make_project(env, name: str):
     p = env["projects_root"] / name
     p.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def tmp_real_root(env):
+    """已知根之外的真实目录（模拟 junction 指向的仓库，如 C:\\ProgramMine\\video-use）。"""
+    d = env["data"] / "realvault"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def make_skill(root, dir_name: str, name: str | None = None, description: str = ""):
@@ -419,3 +427,63 @@ def test_content_preview_parses_frontmatter_and_body(env):
 
     with pytest.raises(ValueError, match="不在任何已知 skill 存放区"):
         skill_manager.read_content(str(env["projects_root"]))
+
+
+# ---------------- junction / 链接 skill 的归属校验 ----------------
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows junction 语义")
+def test_junction_skill_passes_location_check_and_full_ops(env, db):
+    """真实场景回归：skill 以 junction 形式放进全局根（真实目录在别处）。
+
+    发现流程（iterdir 视角）能列出 junction，归属校验必须同一视角——
+    不得因 Path.resolve() 跟随链接到真实目标而误判「不在已知存放区」；
+    预览、删除（只移走链接本身、真实目录不动）均需贯通。
+    """
+    import _winapi
+
+    real = make_skill(tmp_real_root(env), "logo-generator", "logo-generator", "生成 logo")
+    link = env["codex"] / "logo-generator"
+    _winapi.CreateJunction(str(real), str(link))
+
+    # 发现可见（junction 表现为普通子目录）
+    disc = skill_manager.discover()
+    names = {g["name"] for g in disc["global"]}
+    assert "logo-generator" in names
+
+    # 归属校验：junction 路径本身必须通过
+    located = skill_manager.locate_skill(str(link))
+    assert located == link
+    loc = skill_manager.skill_location(located)
+    assert loc == {"scope": "global", "tool": "codex", "project": None}
+
+    # 预览可读（透过 junction 读到 SKILL.md）
+    content = skill_manager.read_content(str(link))
+    assert content["name"] == "logo-generator"
+
+    # 删除只移走链接，真实目录原样保留
+    deleted = skill_manager.delete_to_trash(db, str(link))
+    assert deleted["deleted"] is True
+    assert not link.exists()
+    assert (real / skill_manager.SKILL_FILE).is_file()
+
+    # 恢复：链接回到原位，仍指向真实目录
+    item = skill_manager.list_trash(db)["items"][0]
+    assert item["scope"] == "global" and item["tool"] == "codex"
+    skill_manager.restore_from_trash(db, item["id"])
+    assert link.exists()
+    assert (link / skill_manager.SKILL_FILE).is_file()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows junction 语义")
+def test_junction_pointing_into_known_root_not_double_counted(env):
+    """链接指向另一个已知 skill 根内的目录时，按链接所在位置判定归属，
+    不因 resolve 跟随链接而把路径算到目标端头上。"""
+    import _winapi
+
+    real = make_skill(env["claude"], "shared", "shared", "共享")
+    link = env["zcode"] / "shared"
+    _winapi.CreateJunction(str(real), str(link))
+    located = skill_manager.locate_skill(str(link))
+    loc = skill_manager.skill_location(located)
+    assert loc["tool"] == "zcode" and loc["scope"] == "global"

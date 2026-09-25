@@ -13,11 +13,29 @@ layui.use(['layer', 'form', 'element'], function () {
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
-  function apiGet(path) {
-    return fetch(API + path).then(function (r) {
-      if (!r.ok) return r.json().then(function (j) { throw new Error(j.detail || '请求失败'); });
-      return r.json();
+  /* 统一解析响应文本：后端异常时可能返回纯文本（如 500 的 Internal Server
+   * Error），直接 r.json() 会把 JSON 解析错误当报错弹出，掩盖真实原因。 */
+  function parseResponse(r) {
+    return r.text().then(function (t) {
+      var data;
+      try {
+        data = t ? JSON.parse(t) : null;
+      } catch (e) {
+        data = undefined;
+      }
+      if (!r.ok) {
+        var msg = (data && data.detail) || (t ? t.slice(0, 120) : '');
+        throw new Error(msg || ('请求失败（HTTP ' + r.status + '）'));
+      }
+      if (data === undefined) {
+        throw new Error('响应不是有效 JSON（HTTP ' + r.status + '）');
+      }
+      return data;
     });
+  }
+
+  function apiGet(path) {
+    return fetch(API + path).then(parseResponse);
   }
 
   function apiSend(path, method, body) {
@@ -25,10 +43,7 @@ layui.use(['layer', 'form', 'element'], function () {
       method: method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
-    }).then(function (r) {
-      if (!r.ok) return r.json().then(function (j) { throw new Error(j.detail || '请求失败'); });
-      return r.json();
-    });
+    }).then(parseResponse);
   }
 
   /* 从当前打开的配置表单读取值（不依赖 form.getData，兼容性更好） */

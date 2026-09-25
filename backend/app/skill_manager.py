@@ -165,7 +165,7 @@ def project_dirs(roots: list[str] | None = None) -> list[dict]:
     seen: set[str] = set()
     for root_text in roots if roots is not None else load_project_roots():
         root = Path(root_text)
-        if not root.is_dir():
+        if not _safe_is_dir(root):
             continue
         try:
             children = sorted(root.iterdir(), key=lambda p: p.name.lower())
@@ -335,19 +335,30 @@ def discover() -> dict:
 # ---------------- 路径归属校验（删除 / 打开 / 预览的安全前提） ----------------
 
 
-def _normcase(path: Path) -> str:
-    return os.path.normcase(path)
+def _normkey(path) -> str:
+    """路径比较键：abspath 纯字符串归一化（normcase 处理大小写与斜杠）。
+
+    刻意不用 Path.resolve()：
+    - resolve 会把 junction/符号链接解析到真实目标，与发现流程（iterdir 视角，
+      junction 就是一个普通子目录）口径不一致，会让链接进来的 skill 被误判
+      「不在任何已知 skill 存放区」；
+    - resolve 需要真实访问文件系统，Windows 11 24H2 对「不受信任装入点」会
+      间歇性抛 WinError 448，让整条校验链路未捕获 500。
+    abspath 两者皆无：不跟随 reparse point，也不触碰文件系统。
+    """
+    return os.path.normcase(os.path.abspath(str(path)))
 
 
 def locate_skill(path_text: str, require_skill_md: bool = True) -> Path:
     """校验给定路径位于某个已知 skill 根之下（且是其中的直接子目录）。
 
-    校验失败抛 ValueError；成功返回 resolve 后的目录路径。
+    校验失败抛 ValueError；成功返回归一化后的目录路径。归属比较使用
+    _normkey（不解析 junction、不访问文件系统），与发现流程同视角。
     """
     if not path_text or not str(path_text).strip():
         raise ValueError("缺少 skill 路径")
     try:
-        target = Path(str(path_text)).resolve()
+        target = Path(os.path.abspath(str(path_text)))
     except (OSError, ValueError) as e:
         raise ValueError(f"无效的 skill 路径：{e}") from e
     try:
@@ -355,8 +366,8 @@ def locate_skill(path_text: str, require_skill_md: bool = True) -> Path:
             raise ValueError(f"skill 目录不存在：{target}")
     except OSError as e:
         raise ValueError(f"skill 目录无法访问：{e}") from e
-    known = [_normcase(r.resolve()) for r in all_known_skill_roots()]
-    parent = _normcase(target.parent)
+    known = [_normkey(r) for r in all_known_skill_roots()]
+    parent = _normkey(target.parent)
     if parent not in known:
         raise ValueError("该路径不在任何已知 skill 存放区中，拒绝操作")
     if require_skill_md:
@@ -370,16 +381,17 @@ def locate_skill(path_text: str, require_skill_md: bool = True) -> Path:
 
 
 def skill_location(target: Path) -> dict:
-    """推断 skill 目录的位置属性（scope/tool/project）。"""
-    parent = _normcase(target.parent)
+    """推断 skill 目录的位置属性（scope/tool/project）。与 locate_skill 同用
+    _normkey 比较，junction skill 的位置按链接所在端计（删除/回收站只动链接）。"""
+    parent = _normkey(target.parent)
     for tool in TOOLS:
         root = global_skill_roots()[tool]
-        if _normcase(root.resolve()) == parent:
+        if _normkey(root) == parent:
             return {"scope": "global", "tool": tool, "project": None}
     for proj in project_dirs():
         for tool in TOOLS:
             root = project_skill_roots(proj["root"])[tool]
-            if _normcase(root.resolve()) == parent:
+            if _normkey(root) == parent:
                 return {"scope": "project", "tool": tool, "project": proj["project"]}
     return {"scope": "unknown", "tool": "", "project": None}
 
