@@ -309,7 +309,7 @@ class _HostCheckRedirectHandler(HTTPRedirectHandler):
 def _http_get(url: str, max_bytes: int, timeout: float) -> bytes:
     """HTTPS GET + 逐跳 host 白名单 + 最终 URL 复检 + 大小上限。timeout 为该请求 socket 超时。"""
     opener = build_opener(_HostCheckRedirectHandler())
-    req = Request(url, headers={"User-Agent": "a4api-updater/1.0"})
+    req = Request(url, headers={"User-Agent": "a4agent-updater/1.0"})
     with opener.open(req, timeout=timeout) as resp:
         if not allowed_host(_host_of(resp.geturl())):
             raise URLError(f"blocked host: {_host_of(resp.geturl())}")
@@ -575,7 +575,7 @@ def _download_file(url: str, dest: Path, expected_sha256: str, expected_size: in
                    cancel: threading.Event) -> None:
     """下载单个 URL 到 dest，边下边算 SHA256；尺寸/哈希不符抛异常，不留 .part。"""
     opener = build_opener(_HostCheckRedirectHandler())
-    req = Request(url, headers={"User-Agent": "a4api-updater/1.0"})
+    req = Request(url, headers={"User-Agent": "a4agent-updater/1.0"})
     with opener.open(req, timeout=_HTTP_TIMEOUT) as resp:
         if not allowed_host(_host_of(resp.geturl())):
             raise URLError(f"blocked host: {_host_of(resp.geturl())}")
