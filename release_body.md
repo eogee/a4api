@@ -18,5 +18,6 @@
 
 ## 校验
 
-- 安装包：`a4agent-setup-0.4.0.exe`
-- SHA256：`（发布时填写）`
+- 安装包：`a4agent-setup-0.4.0.exe`（20,748,981 字节）
+- SHA256：`C2A7C26FCC713132EBFACF90DC3DF1E8073C9BF823B9870DAF32ABED4A3DA8A0`
+- 兼容资产：`a4api-setup-0.4.0.exe`（与上者字节一致，供 v0.3.x 老版本自动更新）
