@@ -1,7 +1,7 @@
 """独立运行的 OpenAI 翻译代理进程。
 
 工具在切换 OpenAI 类型服务商时启动本进程（开发：python -m backend.app.proxy_standalone；
-打包：a4api.exe --proxy）。应用退出后代理仍然存活，Claude Code 可继续使用。
+打包：a4agent.exe --proxy）。应用退出后代理仍然存活，Claude Code 可继续使用。
 代理轮询数据库：当前生效配置不再是 openai 类型时自动退出。
 """
 

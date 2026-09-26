@@ -496,7 +496,7 @@ layui.use(['layer', 'form', 'element'], function () {
         '</div></div>';
       layer.open({
         type: 1,
-        title: 'a4api 本地模型 · 首次配置向导',
+        title: 'a4agent 本地模型 · 首次配置向导',
         area: ['780px', '600px'],
         content: content,
         end: function () { wiz = null; }

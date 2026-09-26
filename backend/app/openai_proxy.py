@@ -21,6 +21,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from .env_compat import env_first
 from .responses_translator import (
     build_payload as _build_responses_payload,
     translate_response as _translate_responses_response,
@@ -30,7 +31,8 @@ from .responses_translator import (
 PROXY_HOST = "127.0.0.1"
 PROXY_PORT_START = 17890
 PROXY_PORT_END = 17899
-_DEBUG_LOG = os.environ.get("A4API_PROXY_DEBUG")
+# 新名优先，旧 A4API_PROXY_DEBUG 兼容（见 env_compat）
+_DEBUG_LOG = env_first("A4AGENT_PROXY_DEBUG", "A4API_PROXY_DEBUG")
 
 _state: dict = {
     "token": None,
@@ -42,7 +44,7 @@ _state: dict = {
     "lock": threading.Lock(),
 }
 
-proxy_app = FastAPI(title="a4api openai proxy")
+proxy_app = FastAPI(title="a4agent openai proxy")
 
 
 # ---------------- 生命周期 ----------------
@@ -562,7 +564,7 @@ def _normalize_tool_call_nulls(chunk: dict) -> None:
     dsh-llm-deepseek 适配器用 `x !== void 0` 判断（lib/index.js:321-322），
     null 会通过检查并把已解析出的工具名/ID 覆盖为空，导致 harness 报
     `unknown tool ""`。这里把 null 键删除，等价于上游省略该字段，
-    客户端（含 dsh、a4api 自身）将保留首个分片解析出的 id/name。
+    客户端（含 dsh、a4agent 自身）将保留首个分片解析出的 id/name。
     """
     for choice in chunk.get("choices") or []:
         delta = choice.get("delta") or {}
@@ -793,7 +795,7 @@ async def _hello():
 async def _version():
     """返回代理能力版本，供宿主工具校验当前代理是否支持 Codex Responses。"""
     return {
-        "name": "a4api-proxy",
+        "name": "a4agent-proxy",
         "version": 2,
         "features": ["anthropic_messages", "openai_responses"],
     }

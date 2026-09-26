@@ -157,7 +157,7 @@ def _run_pyinstaller(onefile: bool, version: str) -> None:
         sys.executable, "-m", "PyInstaller",
         "--noconfirm",  # 覆盖旧构建产物时不二次询问
         "--windowed",
-        "--name", "a4api",
+        "--name", "a4agent",
         "--add-data", f"{frontend}{sep}frontend",
         "--add-data", f"{version_json}{sep}.",
     ]
@@ -174,9 +174,9 @@ def _run_pyinstaller(onefile: bool, version: str) -> None:
     print("执行命令：", " ".join(cmd))
     subprocess.run(cmd, cwd=str(ROOT), check=True)
     if onefile:
-        print("\n打包完成：dist/a4api.exe")
+        print("\n打包完成：dist/a4agent.exe")
     else:
-        print("\n打包完成：dist/a4api/a4api.exe（文件夹版）")
+        print("\n打包完成：dist/a4agent/a4agent.exe（文件夹版）")
 
 
 def _run_installer(version: str, iscc: Path) -> None:
@@ -186,11 +186,11 @@ def _run_installer(version: str, iscc: Path) -> None:
         cwd=str(ROOT),
         check=True,
     )
-    print(f"\n安装包完成：dist/a4api-setup-{version}.exe")
+    print(f"\n安装包完成：dist/a4agent-setup-{version}.exe")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="a4api 打包脚本")
+    parser = argparse.ArgumentParser(description="a4agent 打包脚本")
     parser.add_argument("--installer", action="store_true", help="同时编译 Inno Setup 安装包")
     parser.add_argument("--iscc", help="指定 ISCC.exe 路径（默认自动探测）")
     parser.add_argument("--onefile", action="store_true", help="单 exe 模式（默认 onedir）")

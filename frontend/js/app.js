@@ -685,7 +685,7 @@ layui.use(['layer', 'form', 'element'], function () {
       area: ['420px', 'auto'],
       content: '<div class="update-panel">' +
         '<p>v' + escapeHtml(version) + ' 安装包已下载并通过 SHA256 校验。</p>' +
-        '<p class="update-warn">是否现在运行安装程序完成更新？更新过程中 a4api 将自动关闭。</p></div>',
+        '<p class="update-warn">是否现在运行安装程序完成更新？更新过程中 a4agent 将自动关闭。</p></div>',
       btn: ['立即更新', '稍后'],
       yes: function (index) {
         layer.close(index);
@@ -696,7 +696,7 @@ layui.use(['layer', 'form', 'element'], function () {
   }
 
   function doApply() {
-    var tip = layer.msg('正在启动更新安装程序，a4api 即将关闭…', { icon: 1, time: 0 });
+    var tip = layer.msg('正在启动更新安装程序，a4agent 即将关闭…', { icon: 1, time: 0 });
     apiSend('/update/apply', 'POST', {}).then(function () {
       // 应用随即退出，这里无需清理
     }).catch(function (e) {
@@ -2170,7 +2170,7 @@ layui.use(['layer', 'form', 'element'], function () {
           '<span id="ver-current" style="font-size:14px;font-weight:600;color:#3d4044;">当前版本 ' +
             escapeHtml(document.getElementById('footer-version').textContent || '') + '</span>' +
           '<button class="layui-btn layui-btn-normal layui-btn-sm" id="btn-version-check">检查更新</button>' +
-          '<a class="update-link" style="font-size:12px;" href="https://github.com/eogee/a4api/releases" target="_blank" rel="noopener">完整发布说明（GitHub Releases）</a>' +
+          '<a class="update-link" style="font-size:12px;" href="https://github.com/eogee/a4agent/releases" target="_blank" rel="noopener">完整发布说明（GitHub Releases）</a>' +
         '</div>' +
         '<div id="ver-notes" class="update-notes" style="margin-top:14px;flex:1 1 auto;min-height:0;max-height:none;overflow-y:auto;">加载中…</div>' +
       '</div>',

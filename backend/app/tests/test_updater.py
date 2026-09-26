@@ -26,35 +26,37 @@ from backend.app.updater import (
     verify_signature,
 )
 
-# golden：与 release.js 相同算法在固定输入下的输出，防跨实现回归
+# golden：与 release.js 相同算法在固定输入下的输出，防跨实现回归。
+# v0.4.0 改名后夹具中的 notes_url/资产名更新，黄金值随之重算；
+# 载荷格式与命名空间（a4api-update，跨版本验签协议）均未变。
 _GOLDEN_PAYLOAD_HEX = (
     "0000000c61346170692d7570646174650000000131000000013100000005302e"
     "322e3000000005302e302e3000000014323032362d30382d30395431303a3030"
-    "3a30305a00000001300000000a74657374206e6f746573000000326874747073"
-    "3a2f2f6769746875622e636f6d2f656f6765652f61346170692f72656c656173"
-    "65732f7461672f76302e322e300000001561346170692d73657475702d302e32"
-    "2e302e6578650000004061616161616161616161616161616161616161616161"
+    "3a30305a00000001300000000a74657374206e6f746573000000346874747073"
+    "3a2f2f6769746875622e636f6d2f656f6765652f61346167656e742f72656c65"
+    "617365732f7461672f76302e322e300000001761346167656e742d7365747570"
+    "2d302e322e302e65786500000040616161616161616161616161616161616161"
     "6161616161616161616161616161616161616161616161616161616161616161"
-    "6161616161616161616100000004313233340000001561346170692d73657475"
-    "702d302e322e302e657865000000406161616161616161616161616161616161"
+    "616161616161616161616161616100000004313233340000001761346167656e"
+    "742d73657475702d302e322e302e657865000000406161616161616161616161"
     "6161616161616161616161616161616161616161616161616161616161616161"
-    "6161616161616161616161616161610000000431323334"
+    "6161616161616161616161616161616161616161610000000431323334"
 )
 
-_PAYLOAD_BYTES = b"hello a4api update " * 1024  # 约 19KB，本地下载测试用
+_PAYLOAD_BYTES = b"hello a4agent update " * 1024  # 约 19KB，本地下载测试用
 
 _GITHUB_ASSET_URL = (
-    "https://github.com/eogee/a4api/releases/download/v0.2.0/a4api-setup-0.2.0.exe"
+    "https://github.com/eogee/a4agent/releases/download/v0.2.0/a4agent-setup-0.2.0.exe"
 )
 _GITEE_ASSET_URL = (
-    "https://gitee.com/eogee/a4api/releases/download/v0.2.0/a4api-setup-0.2.0.exe"
+    "https://gitee.com/eogee/a4agent/releases/download/v0.2.0/a4agent-setup-0.2.0.exe"
 )
 
 
 @pytest.fixture(autouse=True)
 def _reset_state(tmp_path, monkeypatch):
     """隔离测试：独立数据目录 + 清空模块级缓存/下载状态。"""
-    monkeypatch.setenv("A4API_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("A4AGENT_DATA_DIR", str(tmp_path / "data"))
     updater._manifest_cache = None
     updater._download = {"status": "idle", "version": None, "downloaded": 0, "total": 0,
                          "path": None, "sha256_ok": False, "error": None}
@@ -73,11 +75,11 @@ def make_skeleton():
         "prerelease": False,
         "published_at": "2026-08-09T10:00:00Z",
         "notes": "test notes",
-        "notes_url": "https://github.com/eogee/a4api/releases/tag/v0.2.0",
+        "notes_url": "https://github.com/eogee/a4agent/releases/tag/v0.2.0",
         "assets": [
-            {"name": "a4api-setup-0.2.0.exe", "size": 1234, "sha256": "a" * 64,
+            {"name": "a4agent-setup-0.2.0.exe", "size": 1234, "sha256": "a" * 64,
              "url": _GITHUB_ASSET_URL},
-            {"name": "a4api-setup-0.2.0.exe", "size": 1234, "sha256": "a" * 64,
+            {"name": "a4agent-setup-0.2.0.exe", "size": 1234, "sha256": "a" * 64,
              "url": _GITEE_ASSET_URL},
         ],
     }
@@ -151,7 +153,7 @@ def test_verify_signature_accepts_url_tamper(keys):
     下载后仍以被签名的 sha256 兜底，换 URL 无法换安装包内容。
     """
     m = make_signed(keys)
-    m["assets"][0]["url"] = "https://gitee.com/other/releases/download/v0.2.0/a4api-setup-0.2.0.exe"
+    m["assets"][0]["url"] = "https://gitee.com/other/releases/download/v0.2.0/a4agent-setup-0.2.0.exe"
     assert verify_signature(m) is True
 
 
@@ -380,7 +382,7 @@ def test_fetch_from_remote_all_down(monkeypatch):
 
 class _FileHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path == "/a4api-setup-0.2.0.exe":
+        if self.path == "/a4agent-setup-0.2.0.exe":
             self.send_response(200)
             self.send_header("Content-Length", str(len(_PAYLOAD_BYTES)))
             self.end_headers()
@@ -405,8 +407,8 @@ def local_server():
 def _local_manifest(port, keys, **overrides):
     sha = hashlib.sha256(_PAYLOAD_BYTES).hexdigest()
     m = make_signed(keys, assets=[
-        {"name": "a4api-setup-0.2.0.exe", "size": len(_PAYLOAD_BYTES), "sha256": sha,
-         "url": f"http://127.0.0.1:{port}/a4api-setup-0.2.0.exe"},
+        {"name": "a4agent-setup-0.2.0.exe", "size": len(_PAYLOAD_BYTES), "sha256": sha,
+         "url": f"http://127.0.0.1:{port}/a4agent-setup-0.2.0.exe"},
     ])
     m.update(overrides)
     m["signature"] = base64.b64encode(keys.sign(build_payload(m))).decode("ascii")
@@ -448,8 +450,8 @@ def test_download_url_fallback(monkeypatch, keys, local_server):
     """首个镜像地址不可达 → 自动回退到第二个地址。"""
     m = _local_manifest(local_server, keys)
     m["assets"] = [
-        {"name": "a4api-setup-0.2.0.exe", "size": len(_PAYLOAD_BYTES),
-         "sha256": m["assets"][0]["sha256"], "url": "http://127.0.0.1:9/a4api-setup-0.2.0.exe"},
+        {"name": "a4agent-setup-0.2.0.exe", "size": len(_PAYLOAD_BYTES),
+         "sha256": m["assets"][0]["sha256"], "url": "http://127.0.0.1:9/a4agent-setup-0.2.0.exe"},
         m["assets"][0],
     ]
     m["signature"] = base64.b64encode(keys.sign(build_payload(m))).decode("ascii")
@@ -462,13 +464,13 @@ def test_download_url_fallback(monkeypatch, keys, local_server):
 
 
 def test_download_file_cancel(tmp_path, local_server, monkeypatch):
-    part = tmp_path / "a4api-setup-0.2.0.exe.part"
+    part = tmp_path / "a4agent-setup-0.2.0.exe.part"
     cancel = threading.Event()
     cancel.set()  # 已取消 → 立即中断，不写数据
     monkeypatch.setattr(updater, "allowed_host", lambda h: True)
     with pytest.raises(InterruptedError):
         updater._download_file(
-            f"http://127.0.0.1:{local_server}/a4api-setup-0.2.0.exe",
+            f"http://127.0.0.1:{local_server}/a4agent-setup-0.2.0.exe",
             part, hashlib.sha256(_PAYLOAD_BYTES).hexdigest(), len(_PAYLOAD_BYTES), cancel,
         )
     assert not part.exists() or part.stat().st_size == 0
@@ -483,12 +485,12 @@ def test_download_reuse_verified_file(monkeypatch, keys, local_server):
     # 预置一个校验通过的已下载文件 → 直接复用，不再触网下载
     d = Path(updater.get_data_dir()) / "updates" / "0.2.0"
     d.mkdir(parents=True, exist_ok=True)
-    (d / "a4api-setup-0.2.0.exe").write_bytes(_PAYLOAD_BYTES)
+    (d / "a4agent-setup-0.2.0.exe").write_bytes(_PAYLOAD_BYTES)
 
     updater.start_download("0.2.0")
     updater._dl_thread.join(timeout=30)
     assert updater.progress()["status"] == "done"
-    assert updater._sha256_of(d / "a4api-setup-0.2.0.exe") == sha
+    assert updater._sha256_of(d / "a4agent-setup-0.2.0.exe") == sha
 
 
 # ---------- check() ----------
@@ -608,7 +610,7 @@ def test_check_downloaded_marker_cleared_when_file_missing(monkeypatch, keys, _f
     """已下载标记指向的文件被删除 → 不再提示应用，清除残留标记。"""
     m = _local_manifest(9999, keys)  # 端口不可达也不重要，check 不走下载
     monkeypatch.setattr(updater, "fetch_manifest", lambda: m)
-    updater.write_state({"downloaded": {"version": "0.2.0", "path": "C:/nonexistent/a4api-setup-0.2.0.exe"}})
+    updater.write_state({"downloaded": {"version": "0.2.0", "path": "C:/nonexistent/a4agent-setup-0.2.0.exe"}})
 
     r = updater.check()
     assert r["status"] == "update_available"
@@ -618,7 +620,7 @@ def test_check_downloaded_marker_cleared_when_file_missing(monkeypatch, keys, _f
 
 def test_check_downstream_reporting(monkeypatch, keys, _fake_current):
     """update_available 结果带 notes/notes_url，前端可直接渲染。"""
-    m = make_signed(keys, notes="修复若干问题", notes_url="https://github.com/eogee/a4api/releases/tag/v0.2.0")
+    m = make_signed(keys, notes="修复若干问题", notes_url="https://github.com/eogee/a4agent/releases/tag/v0.2.0")
     monkeypatch.setattr(updater, "fetch_manifest", lambda: m)
     r = updater.check()
     assert r["status"] == "update_available"
@@ -672,7 +674,7 @@ def test_apply_offline_uses_persisted_sha(monkeypatch, keys, local_server):
 
     r = updater.apply()
     assert r["applied"] is True
-    assert any(str(a[-1]).endswith("a4api-setup-0.2.0.exe") for a in spawned)
+    assert any(str(a[-1]).endswith("a4agent-setup-0.2.0.exe") for a in spawned)
     assert "downloaded" not in updater.read_state()  # 应用后清除标记
 
 

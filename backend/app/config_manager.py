@@ -16,11 +16,15 @@ import tomli_w
 import yaml
 
 from .database import get_data_dir
+from .env_compat import env_first
 
 CONFIG_FILENAME = "settings.json"
 CODEX_CONFIG_FILENAME = "config.toml"
 DEFAULT_BACKUP_KEEP = 5
-A4API_PROVIDER_PREFIX = "a4api_p"
+A4AGENT_PROVIDER_PREFIX = "a4a_p"
+# v0.3.x 及更早写入用户配置的托管前缀：切换清理托管条目时需一并移除，
+# 否则老用户升级后配置里会残留孤儿条目、越积越多
+LEGACY_PROVIDER_PREFIXES = ("a4api_p",)
 
 # dsh（DeepSeek Harness）相关常量
 DSH_HOME_ENV = "DSH_HOME"
@@ -37,15 +41,16 @@ DSH_ADAPTER_DEFAULT_MAX_TOKENS = 256000
 DSH_DEFAULT_MAX_TOKENS = 131072
 
 # zcode（智谱 Agentic 开发环境）相关常量
-ZCODE_HOME_ENV = "A4API_ZCODE_HOME"
-ZCODE_CLI_CONFIG_ENV = "A4API_ZCODE_CLI_CONFIG_PATH"
-ZCODE_V2_CONFIG_ENV = "A4API_ZCODE_V2_CONFIG_PATH"
+# 环境变量取 (新名, 旧名) 二元组：读取走 env_first，旧 A4API_* 名向后兼容
+ZCODE_HOME_ENV = ("A4AGENT_ZCODE_HOME", "A4API_ZCODE_HOME")
+ZCODE_CLI_CONFIG_ENV = ("A4AGENT_ZCODE_CLI_CONFIG_PATH", "A4API_ZCODE_CLI_CONFIG_PATH")
+ZCODE_V2_CONFIG_ENV = ("A4AGENT_ZCODE_V2_CONFIG_PATH", "A4API_ZCODE_V2_CONFIG_PATH")
 ZCODE_CLI_CONFIG_REL = "cli/config.json"  # CLI/用户配置文件（hooks/plugins/provider/model）
 ZCODE_V2_CONFIG_REL = "v2/config.json"  # 桌面端 provider/models 配置
 
 
 def settings_path() -> Path:
-    override = os.environ.get("A4API_SETTINGS_PATH")
+    override = env_first("A4AGENT_SETTINGS_PATH", "A4API_SETTINGS_PATH")
     if override:
         return Path(override)
     return Path.home() / ".claude" / "settings.json"
@@ -160,8 +165,8 @@ def build_settings(
 
 
 def codex_settings_path() -> Path:
-    """Codex 全局配置文件路径，可用环境变量 A4API_CODEX_CONFIG_PATH 覆盖。"""
-    override = os.environ.get("A4API_CODEX_CONFIG_PATH")
+    """Codex 全局配置文件路径，可用环境变量 A4AGENT_CODEX_CONFIG_PATH 覆盖。"""
+    override = env_first("A4AGENT_CODEX_CONFIG_PATH", "A4API_CODEX_CONFIG_PATH")
     if override:
         return Path(override)
     return Path.home() / ".codex" / CODEX_CONFIG_FILENAME
@@ -203,17 +208,18 @@ def build_codex_settings(
 ) -> dict:
     """基于现有 config.toml 生成新配置：
 
-    更新顶层 model / model_provider，并用 a4api 托管的服务商条目
-    （[model_providers.a4api_p*]）替换旧的 a4api 条目，其余配置原样保留。
+    更新顶层 model / model_provider，并用 a4agent 托管的服务商条目
+    （[model_providers.a4a_p*]）整体替换本工具旧条目（含改名前的 a4api_p* 遗留），
+    其余配置原样保留。
     Codex CLI（0.146+）使用 OpenAI Responses 协议，wire_api 固定为 responses。
     传入 proxy 时把 base_url 指向本地翻译代理、token 换成代理鉴权 token，
     用于智谱等只提供 Chat Completions、不支持原生 /responses 的上游。
     """
     data = dict(existing)
     providers = dict(data.get("model_providers") or {})
-    for key in [k for k in providers if str(k).startswith(A4API_PROVIDER_PREFIX)]:
+    for key in [k for k in providers if str(k).startswith((A4AGENT_PROVIDER_PREFIX,) + LEGACY_PROVIDER_PREFIXES)]:
         providers.pop(key, None)
-    provider_key = f"{A4API_PROVIDER_PREFIX}{provider.id}"
+    provider_key = f"{A4AGENT_PROVIDER_PREFIX}{provider.id}"
     if proxy and proxy.get("base_url") and proxy.get("token"):
         providers[provider_key] = {
             "name": provider.name,
@@ -258,8 +264,8 @@ def atomic_write_codex_settings(data: dict) -> None:
 
 
 def codex_catalog_path(existing: dict | None = None) -> Path:
-    """Codex 自定义模型目录路径，可用环境变量 A4API_CODEX_CATALOG_PATH 覆盖。"""
-    override = os.environ.get("A4API_CODEX_CATALOG_PATH")
+    """Codex 自定义模型目录路径，可用环境变量 A4AGENT_CODEX_CATALOG_PATH 覆盖。"""
+    override = env_first("A4AGENT_CODEX_CATALOG_PATH", "A4API_CODEX_CATALOG_PATH")
     if override:
         return Path(override)
     catalog = (existing or {}).get("model_catalog_json")
@@ -353,7 +359,7 @@ def ensure_model_in_catalog(model: str, existing: dict | None = None) -> dict:
     entry = template
     entry["slug"] = model
     entry["display_name"] = model
-    entry["description"] = f"{model} via a4api local proxy"
+    entry["description"] = f"{model} via a4agent local proxy"
     if "context_window" in entry:
         entry["context_window"] = 200000
     if "max_context_window" in entry:
@@ -397,16 +403,16 @@ def dsh_home() -> Path:
 
 
 def dsh_settings_path() -> Path:
-    """dsh 全局设置文档路径，可用环境变量 A4API_DSH_SETTINGS_PATH 覆盖。"""
-    override = os.environ.get("A4API_DSH_SETTINGS_PATH")
+    """dsh 全局设置文档路径，可用环境变量 A4AGENT_DSH_SETTINGS_PATH 覆盖。"""
+    override = env_first("A4AGENT_DSH_SETTINGS_PATH", "A4API_DSH_SETTINGS_PATH")
     if override:
         return Path(override)
     return dsh_home() / DSH_SETTINGS_FILENAME
 
 
 def dsh_credentials_path() -> Path:
-    """dsh 凭证文档路径，可用环境变量 A4API_DSH_CREDENTIALS_PATH 覆盖。"""
-    override = os.environ.get("A4API_DSH_CREDENTIALS_PATH")
+    """dsh 凭证文档路径，可用环境变量 A4AGENT_DSH_CREDENTIALS_PATH 覆盖。"""
+    override = env_first("A4AGENT_DSH_CREDENTIALS_PATH", "A4API_DSH_CREDENTIALS_PATH")
     if override:
         return Path(override)
     return dsh_home() / DSH_CREDENTIALS_FILENAME
@@ -471,7 +477,7 @@ def build_dsh_settings(
     把工具名/ID 覆盖为空的问题），apiKeyEnv 固定为 DEEPSEEK_API_KEY 并显式
     写入，key 本体由 build_dsh_credentials() 落到 .credentials.yaml。
 
-    max_tokens：a4api 里为该配置显式填写的单次输出上限，优先于一切既有值；
+    max_tokens：a4agent 里为该配置显式填写的单次输出上限，优先于一切既有值；
     留空（None）时保留用户已手动设置的 maxTokens，都没有则用安全默认。
     """
     data = dict(existing or {})
@@ -583,26 +589,26 @@ def read_dsh_selection() -> tuple[str | None, str | None]:
 #   - ~/.zcode/v2/config.json：桌面端 provider/models 配置，含各模型的
 #     reasoning / limit / modalities 元数据。
 # 切换时两份都写（合并式，保留 hooks / 其它 provider 等既有键），provider 条目
-# 以 a4api_p<id> 命名托管，便于切换时整体替换而不污染用户手工添加的条目。
+# 以 a4a_p<id> 命名托管，便于切换时整体替换而不污染用户手工添加的条目。
 
 
 def zcode_home() -> Path:
-    """zcode 数据目录：优先 $A4API_ZCODE_HOME，否则 ~/.zcode。"""
-    override = os.environ.get(ZCODE_HOME_ENV)
+    """zcode 数据目录：优先 A4AGENT_ZCODE_HOME（旧 A4API_ZCODE_HOME 兼容），否则 ~/.zcode。"""
+    override = env_first(*ZCODE_HOME_ENV)
     return Path(override) if override else Path.home() / ".zcode"
 
 
 def zcode_cli_config_path() -> Path:
-    """zcode CLI 用户配置文件路径，可用环境变量 A4API_ZCODE_CLI_CONFIG_PATH 覆盖。"""
-    override = os.environ.get(ZCODE_CLI_CONFIG_ENV)
+    """zcode CLI 用户配置文件路径，可用环境变量 A4AGENT_ZCODE_CLI_CONFIG_PATH 覆盖。"""
+    override = env_first(*ZCODE_CLI_CONFIG_ENV)
     if override:
         return Path(override)
     return zcode_home() / ZCODE_CLI_CONFIG_REL
 
 
 def zcode_v2_config_path() -> Path:
-    """zcode 桌面端 provider 配置路径，可用环境变量 A4API_ZCODE_V2_CONFIG_PATH 覆盖。"""
-    override = os.environ.get(ZCODE_V2_CONFIG_ENV)
+    """zcode 桌面端 provider 配置路径，可用环境变量 A4AGENT_ZCODE_V2_CONFIG_PATH 覆盖。"""
+    override = env_first(*ZCODE_V2_CONFIG_ENV)
     if override:
         return Path(override)
     return zcode_home() / ZCODE_V2_CONFIG_REL
@@ -721,12 +727,12 @@ def build_zcode_settings(
 
     zcode 原生支持 anthropic 与 openai-compatible 两种 provider kind，直连
     上游、无需本地翻译代理：api_type=anthropic → kind=anthropic，
-    api_type=openai → kind=openai-compatible。provider 条目以 a4api_p<id>
+    api_type=openai → kind=openai-compatible。provider 条目以 a4a_p<id>
     命名托管（切换时整体替换本工具旧条目，保留用户手工添加的其它 provider），
     顶层字段（hooks / plugins / 其它键）原样保留。
     """
     kind = "anthropic" if provider.api_type == "anthropic" else "openai-compatible"
-    provider_key = f"{A4API_PROVIDER_PREFIX}{provider.id}"
+    provider_key = f"{A4AGENT_PROVIDER_PREFIX}{provider.id}"
     entry = {
         "name": provider.name,
         "kind": kind,
@@ -739,7 +745,7 @@ def build_zcode_settings(
 
     cli = dict(cli_existing or {})
     cli_providers = dict(cli.get("provider") or {})
-    for key in [k for k in cli_providers if str(k).startswith(A4API_PROVIDER_PREFIX)]:
+    for key in [k for k in cli_providers if str(k).startswith((A4AGENT_PROVIDER_PREFIX,) + LEGACY_PROVIDER_PREFIXES)]:
         cli_providers.pop(key, None)
     cli_providers[provider_key] = {
         **entry,
@@ -750,7 +756,7 @@ def build_zcode_settings(
 
     v2 = dict(v2_existing or {})
     v2_providers = dict(v2.get("provider") or {})
-    for key in [k for k in v2_providers if str(k).startswith(A4API_PROVIDER_PREFIX)]:
+    for key in [k for k in v2_providers if str(k).startswith((A4AGENT_PROVIDER_PREFIX,) + LEGACY_PROVIDER_PREFIXES)]:
         v2_providers.pop(key, None)
     v2_providers[provider_key] = {
         **entry,

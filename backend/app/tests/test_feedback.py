@@ -59,7 +59,7 @@ def test_create_feedback_saves_and_reports_emailed(tmp_path, monkeypatch):
         assert row.content == "描述前后空白"
         assert row.contact == "a@b.com"
         assert row.emailed is True
-        assert "a4api 版本" in row.env_info
+        assert "a4agent 版本" in row.env_info
         assert row.log_excerpt == ""
         imgs = db.execute(select(FeedbackImage)).scalars().all()
         assert len(imgs) == 1
@@ -70,7 +70,7 @@ def test_create_feedback_saves_and_reports_emailed(tmp_path, monkeypatch):
 
 def test_include_log_attaches_tail(tmp_path, monkeypatch):
     _fake_mail(monkeypatch, sent=True)
-    log_file = tmp_path / "a4api.log"
+    log_file = tmp_path / "a4agent.log"
     log_file.write_text("\n".join(f"line-{i}" for i in range(1, 201)) + "\n", encoding="utf-8")
     monkeypatch.setattr(feedback, "log_path", lambda: log_file)
 
@@ -128,9 +128,21 @@ def test_mail_failure_still_saves(tmp_path, monkeypatch):
         assert row.emailed is False
 
 
-def test_context_fields():
+def test_context_fields(tmp_path, monkeypatch):
+    # 隔离用户目录：本机若存在改名前旧日志（~/.a4api/logs/a4api.log），
+    # log_path 会按兼容逻辑回退到旧路径，不能作为断言依据
+    monkeypatch.setattr(feedback.Path, "home", lambda: tmp_path)
     ctx = feedback.feedback_context()
     assert ctx["version"]
     assert ctx["platform"]
     assert isinstance(ctx["frozen"], bool)
-    assert ctx["log_path"].endswith("a4api.log")
+    assert ctx["log_path"].endswith("a4agent.log")
+
+
+def test_log_path_legacy_fallback(tmp_path, monkeypatch):
+    """新日志不存在而旧（a4api）日志存在时，回退旧路径以兼容老版本升级用户。"""
+    monkeypatch.setattr(feedback.Path, "home", lambda: tmp_path)
+    legacy = tmp_path / ".a4api" / "logs" / "a4api.log"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("old log", encoding="utf-8")
+    assert feedback.log_path() == legacy

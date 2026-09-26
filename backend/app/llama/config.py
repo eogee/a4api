@@ -1,6 +1,6 @@
 """llama 控制台配置模型与 JSON 持久化（移植自 a4agent AppConfig/ConfigStore）。
 
-存储位置与 a4api 其他运行时数据一致：get_data_dir() / llama_config.json。
+存储位置与 a4agent 其他运行时数据一致：get_data_dir() / llama_config.json。
 """
 import json
 import logging

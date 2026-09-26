@@ -4,7 +4,7 @@ import sys
 from ctypes import wintypes
 
 ERROR_ALREADY_EXISTS = 183
-_MUTEX_NAME = "Local\\A4ApiDesktopApp"
+_MUTEX_NAME = "Local\\A4AgentDesktopApp"
 _mutex_handle = None
 
 

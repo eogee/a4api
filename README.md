@@ -1,4 +1,4 @@
-# a4api
+# a4agent
 
 **四端 AI 编程工具管理台 + 本地大模型推理控制台**：为 **Claude Code、Codex、dsh（DeepSeek Harness）与 ZCode（智谱 Agentic 开发环境）** 提供统一的**技能管理（Skill）**、**MCP 管理**与 **API 服务商切换**，并内置 **llama.cpp 本地模型推理**（原 a4agent 能力完整合并）。所有操作通过可视化界面完成，无需手动编辑配置文件。
 
@@ -15,7 +15,7 @@
 
 ## 技能管理
 
-四个工具均使用同一套技能格式（`<skill-name>/SKILL.md` 目录 + frontmatter `name`/`description`），因此 a4api 可以把它们当作一种资源统一管理。
+四个工具均使用同一套技能格式（`<skill-name>/SKILL.md` 目录 + frontmatter `name`/`description`），因此 a4agent 可以把它们当作一种资源统一管理。
 
 ### 发现与聚合
 
@@ -45,13 +45,13 @@
 | dsh | `~/.dsh/skills/`（`$DSH_HOME` 可覆盖） | `<项目>/.dsh/skills/` |
 | ZCode | `~/.zcode/skills/` | `<项目>/.zcode/skills/` |
 
-> ZCode 官方还识别跨工具兼容目录 `~/.agents/skills` 与 `<项目>/.agents/skills`；a4api 统一托管到 `.zcode` 前缀，与其它端保持一致。迁移到 ZCode 的 skill 会被 ZCode 客户端真实读取。
+> ZCode 官方还识别跨工具兼容目录 `~/.agents/skills` 与 `<项目>/.agents/skills`；a4agent 统一托管到 `.zcode` 前缀，与其它端保持一致。迁移到 ZCode 的 skill 会被 ZCode 客户端真实读取。
 
 ---
 
 ## MCP 管理
 
-四端的 MCP server 都写在各自的配置文件里，a4api 把它们归一为统一视图（`name` / `transport` / `command` / `args` / `env` / `url` / `headers`）管理。
+四端的 MCP server 都写在各自的配置文件里，a4agent 把它们归一为统一视图（`name` / `transport` / `command` / `args` / `env` / `url` / `headers`）管理。
 
 ### 发现与聚合
 
@@ -78,7 +78,7 @@
 | dsh | stdio / streamable-http | `~/.dsh/profiles/<profile>/cordis.patch.yml` |
 | ZCode | stdio / sse / http | `~/.zcode/cli/config.json`、`<项目>/.zcode/config.json`（`mcp.servers`） |
 
-> dsh 与 ZCode 的细节：dsh 的 MCP server 挂在 `@deepseek-ai/dsh-mcp-client` 插件条目下，重写时保留其它非管理条目；dsh 无项目级 MCP。ZCode 配置 schema 严格（未知键会被丢弃），a4api 只写其规范字段（`type`/`command`/`args`/`cwd`/`env`/`url`/`headers`/`enabled`/`timeoutMs`），迁移到 ZCode 的 server 会被客户端自动连接。
+> dsh 与 ZCode 的细节：dsh 的 MCP server 挂在 `@deepseek-ai/dsh-mcp-client` 插件条目下，重写时保留其它非管理条目；dsh 无项目级 MCP。ZCode 配置 schema 严格（未知键会被丢弃），a4agent 只写其规范字段（`type`/`command`/`args`/`cwd`/`env`/`url`/`headers`/`enabled`/`timeoutMs`），迁移到 ZCode 的 server 会被客户端自动连接。
 
 ### 回收站与安全
 
@@ -89,12 +89,12 @@
 
 ## API 服务商切换
 
-在以上管理能力之外，a4api 也可为四端一键切换服务商、模型与 API Key：
+在以上管理能力之外，a4agent 也可为四端一键切换服务商、模型与 API Key：
 
 - **Claude Code**：Anthropic 协议直连，或经内置**本地翻译代理**把请求实时翻译为 OpenAI Chat Completions 转发给 OpenAI 兼容服务商（代理仅监听 `127.0.0.1`、随机 token 鉴权，工具退出后仍存活）。
 - **Codex**：OpenAI Responses 协议写入 `~/.codex/config.toml`；上游原生支持 Responses（如 DeepSeek）时直连，否则经本地代理翻译转发。
 - **dsh**：经本地代理 `/chat/completions` 透传连接上游（顺带归一上游流式分片中的 `null` 字段，规避 dsh 适配器把工具名覆盖为空的问题），配置热加载、新会话即生效。
-- **ZCode**：原生支持 Anthropic / OpenAI 两种协议，**直连**写入 CLI 与桌面端两份配置（provider 条目以 `a4api_p<id>` 托管、保留手工条目），无需本地代理。
+- **ZCode**：原生支持 Anthropic / OpenAI 两种协议，**直连**写入 CLI 与桌面端两份配置（provider 条目以 `a4a_p<id>` 托管、保留手工条目），无需本地代理。
 
 切换前自动备份目标配置文件（滚动保留最近 5 份）并原子写入；API Key 使用 Windows DPAPI 加密存储，接口永不回显明文。
 
@@ -145,9 +145,9 @@
 
 ### 下载安装
 
-从 **发行版（Release）** 页面下载安装包 `a4api-setup-*.exe`：
+从 **发行版（Release）** 页面下载安装包 `a4agent-setup-*.exe`：
 
-- **下载地址**：https://github.com/eogee/a4api/releases （选择最新版本）
+- **下载地址**：https://github.com/eogee/a4agent/releases （选择最新版本）
 - **系统要求**：Windows 10/11 64 位
 - 建议核对下载页提供的 SHA256 校验值，确保文件完整未被篡改
 
@@ -155,22 +155,23 @@
 
 ### 运行
 
-1. 安装完成后，从**开始菜单**或**桌面快捷方式**启动 a4api
+1. 安装完成后，从**开始菜单**或**桌面快捷方式**启动 a4agent
 2. 首次安装/运行时若出现 **Windows SmartScreen 提示**，点击「更多信息 → 仍要运行」即可（应用未做商业代码签名，属正常现象，不影响功能）
 3. 界面五个页签：配置方案（API 切换）、供应商管理、**技能管理**、**MCP 管理**、**本地模型**（llama.cpp 推理控制台）
 
 ### 数据与隐私
 
-- 运行时数据（数据库、配置备份）写入 `%APPDATA%\a4api\`，日志写入 `~/.a4api/logs/`
+- 运行时数据（数据库、配置备份）写入 `%APPDATA%\a4agent\`，日志写入 `~/.a4agent/logs/`
 - API Key 使用 Windows DPAPI 加密存储，与当前 Windows 用户绑定
 - 修改前自动备份原配置文件（`~/.claude/settings.json` / `~/.codex/config.toml` / `~/.dsh/settings.yaml` / `~/.dsh/.credentials.yaml` / `~/.zcode/cli/config.json` / `~/.zcode/v2/config.json` 等，滚动保留最近 5 份）
 
 ### 常见问题
 
 - **杀毒软件报毒**：PyInstaller 打包的程序偶被安全软件误报，请添加信任或排除；可将样本提交给对应厂商申诉误报
-- **升级**：直接运行新版 `a4api-setup-*.exe` 覆盖安装即可，数据与配置（`%APPDATA%\a4api\`）会保留；升级前会自动停止后台翻译代理并清理旧文件
-- **卸载**：在「设置 → 应用」中卸载；程序文件会移除，运行数据（数据库、配置备份）保留在 `%APPDATA%\a4api\`，如需彻底清除请手动删除该目录
-- **反馈问题**：推荐用应用内入口——页脚「问题反馈」直接提交，支持截图（≤10 张 × ≤1MB）、自动附带环境信息与可选日志，直达开发者邮箱 eogee@qq.com；也可附上 `~/.a4api/logs/a4api.log` 日志片段提 Issue
+- **升级**：直接运行新版 `a4agent-setup-*.exe` 覆盖安装即可，数据与配置（`%APPDATA%\a4agent\`）会保留；升级前会自动停止后台翻译代理并清理旧文件
+- **从 a4api 升级（v0.3.x → v0.4.0+）**：产品已更名为 a4agent，直接安装新版即可——首次启动会把 `%APPDATA%\a4api\` 数据自动迁入 `%APPDATA%\a4agent\`，安装器会把程序目录从 `Programs\a4api` 迁到 `Programs\a4agent` 并清理旧快捷方式；此前写入 Claude Code / Codex / dsh / zcode 的 `a4api_p*` 托管条目会在下次切换时自动替换为 `a4a_p*`，无需手工处理。v0.3.x 的「检查更新」也能直接升级到新版
+- **卸载**：在「设置 → 应用」中卸载；程序文件会移除，运行数据（数据库、配置备份）保留在 `%APPDATA%\a4agent\`，如需彻底清除请手动删除该目录
+- **反馈问题**：推荐用应用内入口——页脚「问题反馈」直接提交，支持截图（≤10 张 × ≤1MB）、自动附带环境信息与可选日志，直达开发者邮箱 eogee@qq.com；也可附上 `~/.a4agent/logs/a4agent.log` 日志片段提 Issue
 
 ### 提交 Issue 要求
 
@@ -178,11 +179,11 @@ Issue 已配置结构化模板（**Bug 报告 / 功能需求**），按表单填
 
 1. **明确类型**：Bug 报告 / 功能建议 / 使用疑问，选择对应标签，便于分流处理
 2. **环境信息（必填）**：
-   - a4api 版本号（发行版页面标注的版本）
+   - a4agent 版本号（发行版页面标注的版本）
    - 目标应用：Claude Code / Codex / dsh / ZCode / 其他
    - 服务商与模型：如 DeepSeek、智谱 GLM 等
 3. **复现步骤**：从打开应用到出现问题的完整操作路径，越具体越好；尽量写明「做了什么 → 实际结果 → 预期结果」
-4. **日志**：附上 `~/.a4api/logs/a4api.log` 的**相关片段**（不要整份粘贴，可截取报错前后内容）
+4. **日志**：附上 `~/.a4agent/logs/a4agent.log` 的**相关片段**（不要整份粘贴，可截取报错前后内容）
 5. **报错信息与截图**：界面报错文案、终端输出、异常截图一并附上
 6. **隐私红线**：**切勿在 Issue 中粘贴 API Key、模型密钥等敏感信息**；如日志可能含敏感内容，请先脱敏
 7. **排查先行**：提交前先自查——重启应用、确认 API Key 有效、确认本机能访问上游服务、确认无代理/杀软干扰
@@ -199,7 +200,7 @@ Issue 已配置结构化模板（**Bug 报告 / 功能需求**），按表单填
 
 - **双源下载**：安装包优先从 GitHub、不可达时回退 Gitee（同一 SHA256 验证两个镜像地址）。
 - **更新清单签名**：发布侧用 Ed25519 私钥签名 `latest.json`（版本、更新说明、安装包 SHA256 等字段），应用内置对应公钥验签；任何字段异常或签名不符，清单直接作废、**不弹更新提示**。URL 不入签名，因此 GitHub/Gitee 两份清单字节一致、共用同一签名，URL 指向的内容由被签名的 SHA256 绑死。
-- **完整性校验**：安装包边下边算 SHA256，与签名过的清单比对通过才落盘（存于 `%APPDATA%\a4api\updates\<版本>\`）；点击「立即更新」时会对磁盘文件**再次校验**才启动安装器。
+- **完整性校验**：安装包边下边算 SHA256，与签名过的清单比对通过才落盘（存于 `%APPDATA%\a4agent\updates\<版本>\`）；点击「立即更新」时会对磁盘文件**再次校验**才启动安装器。
 - **传输白名单**：仅 HTTPS，且每次重定向逐跳校验主机白名单（`github.com` / `gitee.com` / 两个 `*.githubusercontent.com` 对象存储域 / `*.gitee.com`），拦截跳转到任意域名。
 - **防降级**：候选版本需严格高于当前版本；低于清单 `min_version`（过旧需完整安装包）时拒绝；预发布版本仅当当前运行版本也是预发布时才提示。
 - **尺寸上限**：清单 512KB、安装包 300MB，超限拒绝；下载只写入用户数据目录，不信任系统临时目录。
@@ -218,10 +219,10 @@ Issue 已配置结构化模板（**Bug 报告 / 功能需求**），按表单填
 - **本地翻译代理鉴权**：仅绑定 `127.0.0.1`、端口限定 `17890–17899`；每次启动生成随机鉴权 token，请求必须匹配否则 `401`；只在「OpenAI 兼容 + 目标含 Claude/Codex/dsh」时运行，密钥从数据库按当前生效配置解密，不硬编码。
 - **配置写入与备份**：修改任何目标配置文件前自动备份（滚动保留最近 5 份）；全部采用**原子写**（临时文件 + `fsync` + `os.replace`），崩溃不损坏配置；写入为**合并式**，用户已有的 hooks / permissions / 其它 env / provider 原样保留。
 - **后端 API 防护**：CORS 白名单仅放行 `localhost` / `127.0.0.1` / `[::1]`；请求体经 Pydantic 严格校验；桌面形态下服务仅暴露本机。
-- **数据与文件权限**：打包后数据写入 `%APPDATA%\a4api\`；非 Windows 环境收紧 `700`/`600` 权限；`.gitignore` 排除数据库与运行时数据。
+- **数据与文件权限**：打包后数据写入 `%APPDATA%\a4agent\`；非 Windows 环境收紧 `700`/`600` 权限；`.gitignore` 排除数据库与运行时数据。
 - **并发与一致性**：配置激活用进程内互斥锁串行化，异常事务回滚；SQLite 开启外键约束，删除服务商前校验其下配置方案。
 - **进程与单实例**：Windows 命名互斥体保证单实例运行；重启 Claude Code 前用 CIM 精确匹配进程，避免误杀。
-- **日志与隐私**：默认不记录任何请求/响应内容；代理调试日志仅当显式设置 `A4API_PROXY_DEBUG` 时开启。
+- **日志与隐私**：默认不记录任何请求/响应内容；代理调试日志仅当显式设置 `A4AGENT_PROXY_DEBUG` 时开启。
 
 ### 自动化测试
 
@@ -250,8 +251,8 @@ uv run uvicorn backend.app.main:app --port 8000
 前置：编译安装包需要 [Inno Setup 6](https://jrsoftware.org/isinfo.php)（`winget install --id JRSoftware.InnoSetup -e --accept-source-agreements`）。
 
 ```bash
-uv run python build.py                 # 生成 dist/a4api/（文件夹版 onedir）
-uv run python build.py --installer     # 文件夹版 + 编译安装包 dist/a4api-setup-<版本>.exe
+uv run python build.py                 # 生成 dist/a4agent/（文件夹版 onedir）
+uv run python build.py --installer     # 文件夹版 + 编译安装包 dist/a4agent-setup-<版本>.exe
 uv run python build.py --onefile       # 可选：生成单 exe（临时分发用）
 ```
 
@@ -267,4 +268,4 @@ desktop.py         pywebview 桌面入口
 build.py           打包脚本
 ```
 
-运行时数据（数据库、配置备份、llama 配置与引擎）写入 `backend/database/`（开发）或 `%APPDATA%\a4api\`（打包后）。
+运行时数据（数据库、配置备份、llama 配置与引擎）写入 `backend/database/`（开发）或 `%APPDATA%\a4agent\`（打包后）。

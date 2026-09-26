@@ -32,8 +32,12 @@ LOG_TAIL_MAX_LINES = 200
 
 
 def log_path() -> Path:
-    """与 logging_config 一致的应用日志位置。"""
-    return Path.home() / ".a4api" / "logs" / "a4api.log"
+    """与 logging_config 一致的应用日志位置；新位置尚无日志时回退改名前的旧路径。"""
+    p = Path.home() / ".a4agent" / "logs" / "a4agent.log"
+    if p.exists():
+        return p
+    legacy = Path.home() / ".a4api" / "logs" / "a4api.log"
+    return legacy if legacy.exists() else p
 
 
 def _log_tail(lines: int) -> str:
@@ -50,7 +54,7 @@ def _log_tail(lines: int) -> str:
 def _env_lines() -> list[str]:
     """环境信息（对应 README「提交 Issue 要求」的环境项），服务端采集保证真实。"""
     return [
-        f"- a4api 版本：v{current_version()}",
+        f"- a4agent 版本：v{current_version()}",
         f"- 操作系统：{_platform.platform()}",
         f"- 运行形态：{'桌面安装版' if getattr(sys, 'frozen', False) else '开发调试'}",
     ]

@@ -127,7 +127,7 @@ class EngineDownloader:
             _try_delete(staging)
 
     def _download_file(self, url: str, dest: Path, label: str, grand_total: int) -> int:
-        req = urllib.request.Request(url, headers={"User-Agent": "a4api"})
+        req = urllib.request.Request(url, headers={"User-Agent": "a4agent"})
         last_report = 0.0
         received = 0
         with urllib.request.urlopen(req, timeout=60) as resp, \

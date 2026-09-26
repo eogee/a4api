@@ -136,7 +136,7 @@ def switch_config(config_id: int, body: schemas.SwitchRequest, db: Session = Dep
         if "zcode" in targets:
             # zcode 原生支持 anthropic / openai-compatible 两种 provider kind，
             # 直连上游、无需本地翻译代理；CLI 与桌面端两份配置都写（provider
-            # 条目托管为 a4api_p<id>，model 格式 "<provider_id>/<model>"）。
+            # 条目托管为 a4a_p<id>，model 格式 "<provider_id>/<model>"）。
             zcode_backup_path = config_manager.backup_zcode_configs().get("cli")
             cli_existing = config_manager.read_zcode_cli_config()
             v2_existing = config_manager.read_zcode_v2_config()

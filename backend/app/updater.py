@@ -6,7 +6,7 @@
   任何字段校验或签名不通过，清单即作废，不向用户展示更新提示。
 - 安装包边下边算 SHA256，与签名过的清单比对，通过才落盘；apply 前再次重校验。
 - 版本比较防降级；预发布版本除非当前运行版本也是预发布，否则跳过。
-- 下载落在运行时数据目录（%APPDATA%\\a4api\\updates\\），不信任系统临时目录。
+- 下载落在运行时数据目录（%APPDATA%\\a4agent\\updates\\），不信任系统临时目录。
 """
 import base64
 import hashlib
@@ -41,8 +41,8 @@ MCowBQYDK2VwAyEAv4+TLC3OePq1OPnyOl1TtsY4T8MFDJab/fNNwfgS7rE=
 -----END PUBLIC KEY-----"""
 
 # 更新清单地址：GitHub「latest 别名」优先；GitHub 不可达时经 Gitee API 找最新 tag 回退。
-GITHUB_MANIFEST_URL = "https://github.com/eogee/a4api/releases/latest/download/latest.json"
-GITEE_API_LATEST_URL = "https://gitee.com/api/v5/repos/eogee/a4api/releases/latest"
+GITHUB_MANIFEST_URL = "https://github.com/eogee/a4agent/releases/latest/download/latest.json"
+GITEE_API_LATEST_URL = "https://gitee.com/api/v5/repos/eogee/a4agent/releases/latest"
 
 MANIFEST_TTL = 600  # 清单缓存秒数
 MANIFEST_MAX_BYTES = 512 * 1024
@@ -58,11 +58,16 @@ _ALLOWED_HOSTS = {
     "objects.githubusercontent.com",
 }
 
-# 签名载荷协议常量（与 release.js 严格一致，两端必须输出相同字节）
+# 签名载荷协议常量（与 release.js 严格一致，两端必须输出相同字节）。
+# 注意：_NAMESPACE 是跨版本验签协议的一部分——改名前的 v0.3.x 客户端用它验签，
+# 一旦改动所有老版本会判定清单签名无效、永远收不到更新，因此即使品牌改为
+# a4agent 此值也保持不变。
 _NAMESPACE = "a4api-update"
 _PAYLOAD_VERSION = "1"
 _SCHEMA_VERSION = "1"
-_INSTALLER_PREFIX = "a4api-setup-"
+_INSTALLER_PREFIX = "a4agent-setup-"
+# 改名过渡期清单可能只带旧前缀资产（供 v0.3.x 老客户端升级用），查找时回退兼容
+_LEGACY_INSTALLER_PREFIX = "a4api-setup-"
 
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 _SHA256_RE = re.compile(r"^[a-fA-F0-9]{64}$")
@@ -344,7 +349,7 @@ def _gitee_latest_manifest_url() -> str:
     tag = data.get("tag_name", "")
     if not tag:
         raise URLError("gitee latest release has no tag")
-    return f"https://gitee.com/eogee/a4api/releases/download/{tag}/latest.json"
+    return f"https://gitee.com/eogee/a4agent/releases/download/{tag}/latest.json"
 
 
 def _fetch_github_manifest() -> dict:
@@ -424,17 +429,22 @@ def _installer_name(version: str) -> str:
     return f"{_INSTALLER_PREFIX}{version}.exe"
 
 
+def _installer_names(version: str) -> list[str]:
+    """该版本安装包的候选资产名：新前缀优先，旧前缀兜底（过渡期清单可能只带旧名）。"""
+    return [f"{_INSTALLER_PREFIX}{version}.exe", f"{_LEGACY_INSTALLER_PREFIX}{version}.exe"]
+
+
 def _asset_for_version(manifest: dict, version: str) -> dict:
-    name = _installer_name(version)
-    for a in manifest.get("assets", []):
-        if a.get("name") == name:
-            return a
+    for name in _installer_names(version):
+        for a in manifest.get("assets", []):
+            if a.get("name") == name:
+                return a
     raise ValueError(f"更新清单中找不到版本 {version} 的安装包")
 
 
 def _urls_for_version(manifest: dict, version: str) -> list[str]:
-    name = _installer_name(version)
-    return [a["url"] for a in manifest.get("assets", []) if a.get("name") == name]
+    names = set(_installer_names(version))
+    return [a["url"] for a in manifest.get("assets", []) if a.get("name") in names]
 
 
 def _cleanup_applied_downloads(current: str) -> None:

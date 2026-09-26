@@ -1,6 +1,6 @@
 [project]
-name = "a4api"
-version = "0.3.3"
+name = "a4agent"
+version = "0.4.0"
 description = "AI 编程工具管理台 + 本地大模型推理控制台"
 readme = "README.md"
 requires-python = ">=3.10"

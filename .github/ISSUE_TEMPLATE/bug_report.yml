@@ -1,18 +1,18 @@
 name: Bug 报告
-description: 报告 a4api 的功能异常或错误行为
+description: 报告 a4agent 的功能异常或错误行为
 title: "[Bug] "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        感谢反馈！提交前请先[搜索现有 Issue](https://github.com/eogee/a4api/issues?q=is%3Aissue) 避免重复。
+        感谢反馈！提交前请先[搜索现有 Issue](https://github.com/eogee/a4agent/issues?q=is%3Aissue) 避免重复。
         **切勿在 Issue 中粘贴 API Key、模型密钥等敏感信息**；日志请只截取相关片段。
 
   - type: dropdown
     id: app-version
     attributes:
-      label: a4api 版本
+      label: a4agent 版本
       description: 应用页脚或发行版页面标注的版本号
       options:
         - "其他（请在下方说明）"
@@ -49,7 +49,7 @@ body:
       label: 复现步骤
       description: 从打开应用到出现问题：做了什么 → 实际结果 → 预期结果，越具体越好
       placeholder: |
-        1. 打开 a4api，进入「…」页签
+        1. 打开 a4agent，进入「…」页签
         2. 点击「…」
         3. 实际结果：…
            预期结果：…
@@ -60,7 +60,7 @@ body:
     id: logs
     attributes:
       label: 日志片段
-      description: `~/.a4api/logs/a4api.log` 中报错前后的相关片段（不要整份粘贴）。可在应用内「需求与反馈」弹窗一键生成含日志的反馈文本。
+      description: `~/.a4agent/logs/a4agent.log` 中报错前后的相关片段（不要整份粘贴）。可在应用内「需求与反馈」弹窗一键生成含日志的反馈文本。
       render: text
 
   - type: textarea

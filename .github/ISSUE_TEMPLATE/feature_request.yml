@@ -6,13 +6,13 @@ body:
   - type: markdown
     attributes:
       value: |
-        感谢提议！提交前请先[搜索现有 Issue](https://github.com/eogee/a4api/issues?q=is%3Aissue) 避免重复。
+        感谢提议！提交前请先[搜索现有 Issue](https://github.com/eogee/a4agent/issues?q=is%3Aissue) 避免重复。
 
   - type: textarea
     id: problem
     attributes:
       label: 使用场景与问题
-      description: 你在什么场景下遇到什么问题？想让 a4api 帮你解决什么？
+      description: 你在什么场景下遇到什么问题？想让 a4agent 帮你解决什么？
     validations:
       required: true
 

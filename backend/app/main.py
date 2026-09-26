@@ -24,7 +24,7 @@ def _frontend_dir() -> Path:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="a4api", version=current_version())
+    app = FastAPI(title="a4agent", version=current_version())
 
     # 本地工具只允许本机页面访问 API，避免任意网站读取/操作配置
     app.add_middleware(

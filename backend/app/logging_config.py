@@ -13,10 +13,10 @@ def setup_logging(level: int = logging.INFO) -> None:
     fmt = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handlers: list = [logging.StreamHandler(sys.stdout)]
 
-    log_dir = Path.home() / ".a4api" / "logs"
+    log_dir = Path.home() / ".a4agent" / "logs"
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(log_dir / "a4api.log", encoding="utf-8")
+        file_handler = logging.FileHandler(log_dir / "a4agent.log", encoding="utf-8")
         file_handler.setFormatter(fmt)
         handlers.append(file_handler)
     except OSError:

@@ -46,13 +46,13 @@ def _seed(db, *, api_type="anthropic", native_responses=False, targets="claude,c
 
 def _isolate_paths(tmp_path, monkeypatch):
     """把 settings / codex 配置 / dsh / zcode / 备份目录 / 模型目录全部指到临时目录。"""
-    monkeypatch.setenv("A4API_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("A4API_SETTINGS_PATH", str(tmp_path / "settings.json"))
-    monkeypatch.setenv("A4API_CODEX_CONFIG_PATH", str(tmp_path / "config.toml"))
-    monkeypatch.setenv("A4API_CODEX_CATALOG_PATH", str(tmp_path / "models.json"))
-    monkeypatch.setenv("A4API_ZCODE_CLI_CONFIG_PATH", str(tmp_path / "zcode-cli.json"))
+    monkeypatch.setenv("A4AGENT_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("A4AGENT_SETTINGS_PATH", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("A4AGENT_CODEX_CONFIG_PATH", str(tmp_path / "config.toml"))
+    monkeypatch.setenv("A4AGENT_CODEX_CATALOG_PATH", str(tmp_path / "models.json"))
+    monkeypatch.setenv("A4AGENT_ZCODE_CLI_CONFIG_PATH", str(tmp_path / "zcode-cli.json"))
     monkeypatch.setenv(
-        "A4API_ZCODE_V2_CONFIG_PATH", str(tmp_path / "zcode-v2.json")
+        "A4AGENT_ZCODE_V2_CONFIG_PATH", str(tmp_path / "zcode-v2.json")
     )
 
 
@@ -108,10 +108,10 @@ def test_openai_provider_with_both_targets_writes_both_configs(
     assert settings["env"]["ANTHROPIC_BASE_URL"] == _PROXY["base_url"]
     assert settings["env"]["ANTHROPIC_AUTH_TOKEN"] == _PROXY["token"]
 
-    # Codex config.toml：模型与 a4api 托管的服务商条目均正确
+    # Codex config.toml：模型与 a4agent 托管的服务商条目均正确
     codex = config_manager.read_codex_settings()
     assert codex["model"] == "test-model"
-    provider_key = f"a4api_p{cfg.provider_id}"
+    provider_key = f"a4a_p{cfg.provider_id}"
     assert codex["model_provider"] == provider_key
     entry = codex["model_providers"][provider_key]
     assert entry["wire_api"] == "responses"
@@ -170,8 +170,8 @@ def test_dsh_target_writes_proxy_base_url_and_token(tmp_path, monkeypatch):
     """回归：dsh 目标经本地翻译代理透传（baseURL 指向代理、凭证写代理 token），
     而非直连上游——规避上游流式分片 null 字段导致 dsh 工具名被覆盖。"""
     _isolate_paths(tmp_path, monkeypatch)
-    monkeypatch.setenv("A4API_DSH_SETTINGS_PATH", str(tmp_path / "settings.yaml"))
-    monkeypatch.setenv("A4API_DSH_CREDENTIALS_PATH", str(tmp_path / "credentials.yaml"))
+    monkeypatch.setenv("A4AGENT_DSH_SETTINGS_PATH", str(tmp_path / "settings.yaml"))
+    monkeypatch.setenv("A4AGENT_DSH_CREDENTIALS_PATH", str(tmp_path / "credentials.yaml"))
     monkeypatch.setattr(
         switch.proxy_standalone, "ensure_proxy_running", lambda: dict(_PROXY)
     )
@@ -220,7 +220,7 @@ def test_zcode_target_writes_both_configs_duplex_direct(
     """zcode 目标：CLI 与桌面端两份配置都写入，直连上游、不经本地翻译代理。
 
     anthropic 服务商 → kind=anthropic；openai 服务商 → kind=openai-compatible；
-    model 格式为 "<a4api_p<id>>/<model>"，与 zcode 现行格式一致。
+    model 格式为 "<a4a_p<id>>/<model>"，与 zcode 现行格式一致。
     """
     _isolate_paths(tmp_path, monkeypatch)
     monkeypatch.setattr(switch, "is_claude_running", lambda: True)
@@ -245,7 +245,7 @@ def test_zcode_target_writes_both_configs_duplex_direct(
     assert result.zcode_backup_path is not None
     assert crud.get_active_config(db) is not None
 
-    provider_key = f"a4api_p{cfg.provider_id}"
+    provider_key = f"a4a_p{cfg.provider_id}"
     cli = json.loads((tmp_path / "zcode-cli.json").read_text(encoding="utf-8"))
     assert cli["model"] == f"{provider_key}/test-model"
     entry = cli["provider"][provider_key]
@@ -278,12 +278,12 @@ def test_zcode_target_does_not_require_openai_provider(tmp_path, monkeypatch):
     result = switch.switch_config(cfg.id, schemas.SwitchRequest(restart=False), db)
     assert result.success is True
     cli = json.loads((tmp_path / "zcode-cli.json").read_text(encoding="utf-8"))
-    assert cli["provider"][f"a4api_p{cfg.provider_id}"]["kind"] == "anthropic"
+    assert cli["provider"][f"a4a_p{cfg.provider_id}"]["kind"] == "anthropic"
     db.close()
 
 
 def test_zcode_switch_preserves_user_providers_and_replaces_managed(tmp_path, monkeypatch):
-    """切换只替换 a4api 托管条目（a4api_p*），用户手工添加的 provider 不动。"""
+    """切换只替换 a4agent 托管条目（a4a_p*），用户手工添加的 provider 不动。"""
     _isolate_paths(tmp_path, monkeypatch)
     (tmp_path / "zcode-v2.json").write_text(
         json.dumps(
@@ -296,7 +296,7 @@ def test_zcode_switch_preserves_user_providers_and_replaces_managed(tmp_path, mo
                         "source": "custom",
                         "models": {},
                     },
-                    "a4api_p999": {
+                    "a4a_p999": {
                         "name": "旧托管",
                         "kind": "anthropic",
                         "options": {"apiKey": "stale", "baseURL": "https://stale"},
@@ -317,8 +317,8 @@ def test_zcode_switch_preserves_user_providers_and_replaces_managed(tmp_path, mo
     assert result.success is True
     v2 = json.loads((tmp_path / "zcode-v2.json").read_text(encoding="utf-8"))
     assert v2["provider"]["my-custom"]["options"]["apiKey"] == "keep"
-    assert "a4api_p999" not in v2["provider"]
-    assert f"a4api_p{cfg.provider_id}" in v2["provider"]
+    assert "a4a_p999" not in v2["provider"]
+    assert f"a4a_p{cfg.provider_id}" in v2["provider"]
     db.close()
 
 
@@ -355,7 +355,7 @@ def test_zcode_model_entry_reuses_existing_model_capabilities(tmp_path, monkeypa
     result = switch.switch_config(cfg.id, schemas.SwitchRequest(restart=False), db)
     assert result.success is True
     v2 = json.loads((tmp_path / "zcode-v2.json").read_text(encoding="utf-8"))
-    entry = v2["provider"][f"a4api_p{cfg.provider_id}"]["models"]["test-model"]
+    entry = v2["provider"][f"a4a_p{cfg.provider_id}"]["models"]["test-model"]
     assert entry["limit"]["context"] == 1000000
     assert entry["modalities"]["input"] == ["text", "image"]
     db.close()

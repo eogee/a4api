@@ -74,7 +74,7 @@ def test_build_settings_openai_with_proxy():
 
 def test_atomic_write_settings(tmp_path, monkeypatch):
     target = tmp_path / "nested" / "settings.json"
-    monkeypatch.setenv("A4API_SETTINGS_PATH", str(target))
+    monkeypatch.setenv("A4AGENT_SETTINGS_PATH", str(target))
     data = {"model": "test-model", "env": {"KEY": "value"}}
     config_manager.atomic_write_settings(data)
     assert target.exists()
@@ -131,7 +131,7 @@ def test_build_dsh_settings_resets_stale_adapter_default_max_tokens():
 
 
 def test_build_dsh_settings_explicit_max_tokens_overrides():
-    """a4api 显式填写的 max_tokens 优先于既有手动值。"""
+    """a4agent 显式填写的 max_tokens 优先于既有手动值。"""
     existing = {"llm-deepseek": {"maxTokens": 8192}}
     out = config_manager.build_dsh_settings(
         existing, _provider("openai"), "m1", max_tokens=100000
@@ -206,7 +206,7 @@ def test_build_dsh_credentials_prefers_proxy_token():
 
 def test_atomic_write_dsh_settings(tmp_path, monkeypatch):
     target = tmp_path / "settings.yaml"
-    monkeypatch.setenv("A4API_DSH_SETTINGS_PATH", str(target))
+    monkeypatch.setenv("A4AGENT_DSH_SETTINGS_PATH", str(target))
     data = {
         "llm-deepseek": {"baseURL": "https://x.example.com"},
         "ui-onboarding": {"welcomeNoticeVersion": "2026-08-13.1"},
@@ -219,7 +219,7 @@ def test_atomic_write_dsh_settings(tmp_path, monkeypatch):
 
 def test_atomic_write_dsh_credentials(tmp_path, monkeypatch):
     target = tmp_path / ".credentials.yaml"
-    monkeypatch.setenv("A4API_DSH_CREDENTIALS_PATH", str(target))
+    monkeypatch.setenv("A4AGENT_DSH_CREDENTIALS_PATH", str(target))
     data = {"DEEPSEEK_API_KEY": "sk-123"}
     config_manager.atomic_write_dsh_credentials(data)
     assert yaml.safe_load(target.read_text(encoding="utf-8")) == data
@@ -229,7 +229,7 @@ def test_atomic_write_dsh_credentials(tmp_path, monkeypatch):
 
 def test_read_dsh_selection(tmp_path, monkeypatch):
     target = tmp_path / "settings.yaml"
-    monkeypatch.setenv("A4API_DSH_SETTINGS_PATH", str(target))
+    monkeypatch.setenv("A4AGENT_DSH_SETTINGS_PATH", str(target))
     assert config_manager.read_dsh_selection() == (None, None)
     config_manager.atomic_write_dsh_settings(
         {
@@ -240,3 +240,49 @@ def test_read_dsh_selection(tmp_path, monkeypatch):
         }
     )
     assert config_manager.read_dsh_selection() == ("deepseek-v4-pro", "deepseek-official")
+
+def test_build_codex_settings_cleans_legacy_prefix():
+    """改名前 a4api_p* 托管条目在切换时被一并清理，用户手工条目不动。"""
+    provider = SimpleNamespace(
+        id=7, name="P", api_type="anthropic", api_base="https://api.example.com"
+    )
+    existing = {
+        "model_providers": {
+            "a4api_p3": {"name": "旧托管", "base_url": "https://old"},
+            "manual": {"name": "手工", "base_url": "https://keep"},
+        }
+    }
+    out = config_manager.build_codex_settings(existing, provider, "sk-123", "m1")
+    assert "a4api_p3" not in out["model_providers"]
+    assert "a4a_p7" in out["model_providers"]
+    assert "manual" in out["model_providers"]
+    assert out["model_provider"] == "a4a_p7"
+
+
+def test_build_zcode_settings_cleans_legacy_prefix():
+    """zcode cli/v2 中的 a4api_p* 遗留托管条目同样在切换时清理。"""
+    provider = SimpleNamespace(
+        id=8, name="P", api_type="anthropic", api_base="https://api.example.com"
+    )
+    cli_existing = {"provider": {"a4api_p1": {"name": "旧托管"}}}
+    v2_existing = {"provider": {"a4api_p1": {"name": "旧托管", "models": {}}}}
+    cli, v2 = config_manager.build_zcode_settings(
+        cli_existing, v2_existing, provider, "sk-123", "m1"
+    )
+    assert "a4api_p1" not in cli["provider"]
+    assert "a4api_p1" not in v2["provider"]
+    assert f"a4a_p{provider.id}" in cli["provider"]
+    assert cli["model"] == f"a4a_p{provider.id}/m1"
+
+
+def test_env_first_prefers_new_name(monkeypatch):
+    """环境变量新旧双认：新名优先，缺省回退旧名。"""
+    from backend.app.env_compat import env_first
+
+    monkeypatch.delenv("A4AGENT_DATA_DIR", raising=False)
+    monkeypatch.delenv("A4API_DATA_DIR", raising=False)
+    assert env_first("A4AGENT_DATA_DIR", "A4API_DATA_DIR") is None
+    monkeypatch.setenv("A4API_DATA_DIR", "legacy")
+    assert env_first("A4AGENT_DATA_DIR", "A4API_DATA_DIR") == "legacy"
+    monkeypatch.setenv("A4AGENT_DATA_DIR", "modern")
+    assert env_first("A4AGENT_DATA_DIR", "A4API_DATA_DIR") == "modern"

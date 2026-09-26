@@ -74,7 +74,7 @@ class LlamaRuntime:
 
     def locate_engine(self) -> str | None:
         """引擎目录自动接管：默认 engine\\ 缺失时，探测本机 a4agent / 旧版
-        a4api 安装目录下已有的引擎，免重复下载；找不到返回 None。"""
+        a4agent 安装目录下已有的引擎，免重复下载；找不到返回 None。"""
         if downloader.is_engine_present(self.engine_dir()):
             return str(self.engine_dir())
         for cand in self._candidate_engine_dirs():
@@ -83,7 +83,7 @@ class LlamaRuntime:
         return None
 
     def _candidate_engine_dirs(self) -> list:
-        """候选引擎目录：本机 %LOCALAPPDATA%\\Programs 下的 a4agent* / a4api*，
+        """候选引擎目录：本机 %LOCALAPPDATA%\\Programs 下的 a4agent* / a4agent*，
         按其 llama-server.exe 修改时间从新到旧排序。"""
         out = []
         local = Path.home() / "AppData" / "Local" / "Programs"
@@ -94,7 +94,7 @@ class LlamaRuntime:
                 continue
             try:
                 dirs = [d for d in root.iterdir()
-                        if d.is_dir() and d.name.lower().startswith(("a4agent", "a4api"))]
+                        if d.is_dir() and d.name.lower().startswith(("a4agent", "a4agent"))]
             except OSError:
                 continue
             for d in dirs:

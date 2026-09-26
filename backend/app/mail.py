@@ -27,7 +27,7 @@ def _build_message(fb_id: int, kind: str, content: str, contact: str,
                    images: list[tuple[str, str, bytes]]) -> MIMEMultipart:
     kind_label = _KIND_LABEL.get(kind, kind)
     lines = [
-        f"a4api 收到新的{'问题反馈' if kind == 'bug' else '功能需求'}（#{fb_id}）",
+        f"a4agent 收到新的{'问题反馈' if kind == 'bug' else '功能需求'}（#{fb_id}）",
         "",
         f"反馈类型：{kind_label}",
         f"提交时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
@@ -45,9 +45,9 @@ def _build_message(fb_id: int, kind: str, content: str, contact: str,
         lines += ["", f"（{len(images)} 张截图见附件）"]
 
     msg = MIMEMultipart("mixed")
-    msg["From"] = f"a4api<{mail_secrets.SMTP_SENDER or mail_secrets.SMTP_USER}>"
+    msg["From"] = f"a4agent<{mail_secrets.SMTP_SENDER or mail_secrets.SMTP_USER}>"
     msg["To"] = mail_secrets.FEEDBACK_NOTIFY_EMAIL
-    msg["Subject"] = f"[a4api {kind_label}] #{fb_id}"
+    msg["Subject"] = f"[a4agent {kind_label}] #{fb_id}"
     msg.attach(MIMEText("\n".join(lines), "plain", "utf-8"))
 
     for seq, (name, mime, data) in enumerate(images, start=1):

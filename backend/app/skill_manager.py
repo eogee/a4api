@@ -3,7 +3,7 @@
 四端均采用「<skill-name>/SKILL.md 目录 bundle + frontmatter（name/description）」
 格式，因此迁移即目录复制。本模块职责：
 
-- 路径解析：四端全局根（含 A4API_*_SKILLS_PATH 环境变量覆盖）+ 可配置项目根
+- 路径解析：四端全局根（含 A4AGENT_*_SKILLS_PATH 环境变量覆盖）+ 可配置项目根
   列表下的项目级根；项目根列表持久化到 get_data_dir()/projects.json。
 - 发现：扫描各根下的 skill bundle，以 frontmatter name 为唯一标识做聚合与
   重复标注（「已在 N 端存在」）；Codex 全局根的保留目录 .system/ 等点开头
@@ -25,6 +25,7 @@ import yaml
 
 from . import config_manager
 from .database import get_data_dir
+from .env_compat import env_first
 
 logger = logging.getLogger(__name__)
 
@@ -41,36 +42,36 @@ DEFAULT_PROJECT_ROOT = r"C:\ProgramMine"
 
 
 def claude_skills_root() -> Path:
-    """Claude Code 全局 skill 根，可用环境变量 A4API_CLAUDE_SKILLS_PATH 覆盖。"""
-    override = os.environ.get("A4API_CLAUDE_SKILLS_PATH")
+    """Claude Code 全局 skill 根，可用环境变量 A4AGENT_CLAUDE_SKILLS_PATH 覆盖。"""
+    override = env_first("A4AGENT_CLAUDE_SKILLS_PATH", "A4API_CLAUDE_SKILLS_PATH")
     if override:
         return Path(override)
     return Path.home() / ".claude" / "skills"
 
 
 def codex_skills_root() -> Path:
-    """Codex 全局 skill 根，可用环境变量 A4API_CODEX_SKILLS_PATH 覆盖。"""
-    override = os.environ.get("A4API_CODEX_SKILLS_PATH")
+    """Codex 全局 skill 根，可用环境变量 A4AGENT_CODEX_SKILLS_PATH 覆盖。"""
+    override = env_first("A4AGENT_CODEX_SKILLS_PATH", "A4API_CODEX_SKILLS_PATH")
     if override:
         return Path(override)
     return Path.home() / ".codex" / "skills"
 
 
 def dsh_skills_root() -> Path:
-    """dsh 全局 skill 根，可用环境变量 A4API_DSH_SKILLS_PATH 覆盖。"""
-    override = os.environ.get("A4API_DSH_SKILLS_PATH")
+    """dsh 全局 skill 根，可用环境变量 A4AGENT_DSH_SKILLS_PATH 覆盖。"""
+    override = env_first("A4AGENT_DSH_SKILLS_PATH", "A4API_DSH_SKILLS_PATH")
     if override:
         return Path(override)
     return config_manager.dsh_home() / "skills"
 
 
 def zcode_skills_root() -> Path:
-    """zcode 全局 skill 根，可用环境变量 A4API_ZCODE_SKILLS_PATH 覆盖。
+    """zcode 全局 skill 根，可用环境变量 A4AGENT_ZCODE_SKILLS_PATH 覆盖。
 
     zcode 官方发现路径：~/.zcode/skills（另有跨工具兼容目录 ~/.agents/skills，
     本工具统一托管到 .zcode 前缀，与其他端保持一致）。
     """
-    override = os.environ.get("A4API_ZCODE_SKILLS_PATH")
+    override = env_first("A4AGENT_ZCODE_SKILLS_PATH", "A4API_ZCODE_SKILLS_PATH")
     if override:
         return Path(override)
     return Path.home() / ".zcode" / "skills"

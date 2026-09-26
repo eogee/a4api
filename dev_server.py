@@ -2,7 +2,7 @@
 
 与桌面版（desktop.py）的区别：
   - 不启动 pywebview 窗口，直接在浏览器访问（原生对话框退化为手动输入路径）
-  - 默认共享已安装版的数据目录（%APPDATA%\\a4api），配置方案 / 供应商 /
+  - 默认共享已安装版的数据目录（%APPDATA%\\a4agent），配置方案 / 供应商 /
     本地模型设置全部实时同步
   - 跑的是仓库源码最新代码，改完前端刷新浏览器即可，无需重新打包安装
 
@@ -26,22 +26,26 @@ sys.path.insert(0, str(ROOT))
 # 必须在导入 backend.app.* 之前设置：database.py 在导入期读取该变量。
 # 指向已安装版数据目录，实现浏览器调试与桌面版数据完全同步。
 os.environ.setdefault(
-    "A4API_DATA_DIR",
-    str(Path(os.environ.get("APPDATA", Path.home())) / "a4api"),
+    "A4AGENT_DATA_DIR",
+    str(Path(os.environ.get("APPDATA", Path.home())) / "a4agent"),
 )
 
 DEFAULT_PORT = 18900
 
 
 def _warn_if_desktop_running() -> None:
-    """已安装版与调试版同时写同一份数据可能偶发 SQLite 锁冲突，仅提示不阻止。"""
+    """已安装版与调试版同时写同一份数据可能偶发 SQLite 锁冲突，仅提示不阻止。
+
+    改名过渡期新旧可执行文件并存：a4agent.exe（新版）与 a4api.exe（≤v0.3.3）都查。
+    """
     try:
         out = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq a4api.exe"],
+            ["tasklist"],
             capture_output=True, text=True, timeout=10,
         ).stdout
-        if "a4api.exe" in out:
-            print("⚠ 检测到已安装版 a4api 正在运行。")
+        running = [name for name in ("a4agent.exe", "a4api.exe") if name in out]
+        if running:
+            print(f"⚠ 检测到已安装版（{' / '.join(running)}）正在运行。")
             print("  两边共享同一份数据，同时改动可能偶发写入冲突；建议先关闭已安装版再调试。")
     except Exception:
         pass  # 探测失败不影响启动
@@ -69,7 +73,7 @@ def main() -> None:
 
     from backend.app.main import app
 
-    print(f"a4api 浏览器调试版数据目录（与已安装版共享）：{os.environ['A4API_DATA_DIR']}")
+    print(f"a4agent 浏览器调试版数据目录（与已安装版共享）：{os.environ['A4AGENT_DATA_DIR']}")
     print("Ctrl+C 停止服务")
     _warn_if_desktop_running()
 

@@ -33,11 +33,11 @@ def env(tmp_path, monkeypatch):
         "zcode_cli": tmp_path / "zcode-cli.json",
         "projects_root": tmp_path / "projects",
     }
-    monkeypatch.setenv("A4API_DATA_DIR", str(ctx["data"]))
-    monkeypatch.setenv("A4API_CLAUDE_MCP_PATH", str(ctx["claude_json"]))
-    monkeypatch.setenv("A4API_CODEX_CONFIG_PATH", str(ctx["codex_toml"]))
-    monkeypatch.setenv("A4API_DSH_MCP_PATCH_PATH", str(ctx["dsh_patch"]))
-    monkeypatch.setenv("A4API_ZCODE_CLI_CONFIG_PATH", str(ctx["zcode_cli"]))
+    monkeypatch.setenv("A4AGENT_DATA_DIR", str(ctx["data"]))
+    monkeypatch.setenv("A4AGENT_CLAUDE_MCP_PATH", str(ctx["claude_json"]))
+    monkeypatch.setenv("A4AGENT_CODEX_CONFIG_PATH", str(ctx["codex_toml"]))
+    monkeypatch.setenv("A4AGENT_DSH_MCP_PATCH_PATH", str(ctx["dsh_patch"]))
+    monkeypatch.setenv("A4AGENT_ZCODE_CLI_CONFIG_PATH", str(ctx["zcode_cli"]))
     # 项目根指向临时目录下的 projects_root（skill 的 project_roots 复用于 MCP）
     ctx["projects_root"].mkdir(parents=True)
     from backend.app import skill_manager

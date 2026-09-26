@@ -228,7 +228,7 @@ MASK = "••••••"
 
 def claude_mcp_path() -> Path:
     """Claude Code 用户级 MCP 配置：~/.claude.json 顶层 mcpServers。"""
-    override = os.environ.get("A4API_CLAUDE_MCP_PATH")
+    override = os.environ.get("A4AGENT_CLAUDE_MCP_PATH")
     if override:
         return Path(override)
     return Path.home() / ".claude.json"
@@ -250,12 +250,12 @@ def codex_project_mcp_path(project_root: Path) -> Path:
 
 
 def dsh_mcp_profile() -> str:
-    return os.environ.get("A4API_DSH_MCP_PROFILE") or "web"
+    return os.environ.get("A4AGENT_DSH_MCP_PROFILE") or "web"
 
 
 def dsh_mcp_patch_path(profile: str | None = None) -> Path:
     """dsh 的 MCP server 挂在 profile 层 cordis.patch.yml 的 insert 条目里。"""
-    override = os.environ.get("A4API_DSH_MCP_PATCH_PATH")
+    override = os.environ.get("A4AGENT_DSH_MCP_PATCH_PATH")
     if override:
         return Path(override)
     return config_manager.dsh_home() / "profiles" / (profile or dsh_mcp_profile()) / "cordis.patch.yml"
@@ -264,7 +264,7 @@ def dsh_mcp_patch_path(profile: str | None = None) -> Path:
 def zcode_mcp_path() -> Path:
     """zcode 用户级 MCP 配置：~/.zcode/cli/config.json 的嵌套 mcp.servers。
 
-    复用 config_manager 的 A4API_ZCODE_CLI_CONFIG_PATH 覆盖变量。
+    复用 config_manager 的 A4AGENT_ZCODE_CLI_CONFIG_PATH 覆盖变量。
     """
     return config_manager.zcode_cli_config_path()
 

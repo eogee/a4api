@@ -28,7 +28,7 @@ if "--apply-update" in sys.argv:
     import time
     from ctypes import wintypes
 
-    _MUTEX = "Local\\A4ApiDesktopApp"
+    _MUTEX = "Local\\A4AgentDesktopApp"
     _ERROR_ALREADY_EXISTS = 183
 
     def _wait_mutex_released(timeout_s: float = 20) -> bool:
@@ -120,7 +120,7 @@ def start_server(port: int) -> None:
 
     # 不用 uvicorn 默认日志配置：它对 uvicorn.error 设 propagate=False，
     # 窗口化打包下 stderr 丢弃，接口 500 的堆栈会完全不可见。
-    # log_config=None 让错误沿 root logger 落到 ~/.a4api/logs/a4api.log。
+    # log_config=None 让错误沿 root logger 落到 ~/.a4agent/logs/a4agent.log。
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning", log_config=None)
 
 
@@ -133,7 +133,7 @@ def main() -> None:
 
     if not acquire():
         import ctypes
-        ctypes.windll.user32.MessageBoxW(None, "a4api 已在运行中。", "提示", 0x40)
+        ctypes.windll.user32.MessageBoxW(None, "a4agent 已在运行中。", "提示", 0x40)
         return
 
     port = find_free_port()
@@ -141,7 +141,7 @@ def main() -> None:
     t.start()
 
     webview.create_window(
-        "a4api",
+        "a4agent",
         f"http://127.0.0.1:{port}",
         width=1000,
         height=720,

@@ -31,11 +31,11 @@ def env(tmp_path, monkeypatch):
         "zcode": tmp_path / "zcode-skills",
         "projects_root": tmp_path / "projects",
     }
-    monkeypatch.setenv("A4API_DATA_DIR", str(ctx["data"]))
-    monkeypatch.setenv("A4API_CLAUDE_SKILLS_PATH", str(ctx["claude"]))
-    monkeypatch.setenv("A4API_CODEX_SKILLS_PATH", str(ctx["codex"]))
-    monkeypatch.setenv("A4API_DSH_SKILLS_PATH", str(ctx["dsh"]))
-    monkeypatch.setenv("A4API_ZCODE_SKILLS_PATH", str(ctx["zcode"]))
+    monkeypatch.setenv("A4AGENT_DATA_DIR", str(ctx["data"]))
+    monkeypatch.setenv("A4AGENT_CLAUDE_SKILLS_PATH", str(ctx["claude"]))
+    monkeypatch.setenv("A4AGENT_CODEX_SKILLS_PATH", str(ctx["codex"]))
+    monkeypatch.setenv("A4AGENT_DSH_SKILLS_PATH", str(ctx["dsh"]))
+    monkeypatch.setenv("A4AGENT_ZCODE_SKILLS_PATH", str(ctx["zcode"]))
     for key in ("claude", "codex", "dsh", "zcode"):
         ctx[key].mkdir(parents=True)
     ctx["projects_root"].mkdir(parents=True)

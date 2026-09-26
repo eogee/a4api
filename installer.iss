@@ -1,23 +1,28 @@
-; a4api 每用户安装脚本（Inno Setup 6）
+; a4agent 每用户安装脚本（Inno Setup 6）
 ; 由 build.py --installer 编译，版本号通过 /DMyAppVersion 注入。
+; 改名说明（v0.4.0 起 a4api → a4agent）：
+;   - AppId 保持不变：Inno 视其为同一应用的升级，卸载入口只有一份；
+;   - UsePreviousAppDir=no：安装目录从 Programs\a4api 迁到 Programs\a4agent，
+;     旧目录与旧快捷方式在 ssPostInstall 清理（数据目录 %APPDATA% 由应用首启自动迁移）。
 #ifndef MyAppVersion
   #define MyAppVersion "0.1.0"
 #endif
 
-#define MyAppName "a4api"
-#define MyAppExeName "a4api.exe"
+#define MyAppName "a4agent"
+#define MyAppExeName "a4agent.exe"
 
 [Setup]
 AppId={{8A3C5F71-2B4D-4E6F-9A0B-1C2D3E4F5A6B}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-AppPublisher=a4api
+AppPublisher=a4agent
 DefaultDirName={localappdata}\Programs\{#MyAppName}
+UsePreviousAppDir=no
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=dist
-OutputBaseFilename=a4api-setup-{#MyAppVersion}
+OutputBaseFilename=a4agent-setup-{#MyAppVersion}
 SetupIconFile=resources\logo.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 ; 主程序与后台代理（--proxy）的检测与刹停由 [Code] 的 InitializeSetup/InitializeUninstall
@@ -39,7 +44,7 @@ Name: "chinesesimplified"; MessagesFile: "resources\inno\ChineseSimplified.isl"
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务："
 
 [Files]
-Source: "dist\a4api\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\a4agent\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -58,18 +63,30 @@ Type: dirifempty; Name: "{app}"
 
 [Code]
 const
-  AppImageName = 'a4api.exe';
+  AppImageName = 'a4agent.exe';
+  // 改名过渡期：从 v0.3.x 升级时旧可执行文件仍是 a4api.exe，检测/刹停一并覆盖
+  LegacyImageName = 'a4api.exe';
+  // 同一 AppId：v0.3.x 及更早版本的卸载注册表键，InstallLocation 记录旧安装目录
+  LegacyUninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{8A3C5F71-2B4D-4E6F-9A0B-1C2D3E4F5A6B}_is1';
 
-// 是否有 a4api.exe 在运行（主程序与后台代理共用同一可执行文件，一并覆盖）
-function AppRunning(): Boolean;
+var
+  PreviousDir: String;
+
+// 是否有指定镜像名的进程在运行（主程序与后台代理共用同一可执行文件）
+function ImageRunning(const Image: String): Boolean;
 var
   Rc: Integer;
 begin
   Result := False;
   if Exec(ExpandConstant('{cmd}'),
-          '/C tasklist /FI "IMAGENAME eq ' + AppImageName + '" 2>NUL | find /I "' + AppImageName + '" >NUL',
+          '/C tasklist /FI "IMAGENAME eq ' + Image + '" 2>NUL | find /I "' + Image + '" >NUL',
           '', SW_HIDE, ewWaitUntilTerminated, Rc) then
     Result := (Rc = 0);
+end;
+
+function AppRunning(): Boolean;
+begin
+  Result := ImageRunning(AppImageName) or ImageRunning(LegacyImageName);
 end;
 
 // 刹停全部相关服务：先优雅终止（给 SQLite 落盘留 3 秒），仍存活则强制结束，
@@ -82,12 +99,16 @@ begin
   Result := True;
   Exec(ExpandConstant('{cmd}'), '/C taskkill /IM ' + AppImageName + ' >NUL 2>&1',
        '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  Exec(ExpandConstant('{cmd}'), '/C taskkill /IM ' + LegacyImageName + ' >NUL 2>&1',
+       '', SW_HIDE, ewWaitUntilTerminated, Rc);
   for I := 1 to 6 do
   begin
     if not AppRunning() then Exit;
     Sleep(500);
   end;
   Exec(ExpandConstant('{cmd}'), '/C taskkill /F /IM ' + AppImageName + ' >NUL 2>&1',
+       '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  Exec(ExpandConstant('{cmd}'), '/C taskkill /F /IM ' + LegacyImageName + ' >NUL 2>&1',
        '', SW_HIDE, ewWaitUntilTerminated, Rc);
   for I := 1 to 20 do
   begin
@@ -104,7 +125,7 @@ begin
   Result := True;
   if WizardSilent() then
     Exit;  // 静默：无需确认，交给下方 StopAllAppProcesses
-  if MsgBox('检测到 a4api 正在运行（主界面或后台代理服务）。' #13#10 #13#10
+  if MsgBox('检测到 a4agent（或改名前的 a4api）正在运行（主界面或后台代理服务）。' #13#10 #13#10
             '是否关闭全部相关服务并继续？',
             mbConfirmation, MB_YESNO) = IDYES then
     Exit;
@@ -114,6 +135,9 @@ end;
 function InitializeSetup(): Boolean;
 begin
   Result := True;
+  // 读取旧版本（同名 AppId）的安装目录，供 ssInstall 停旧代理、ssPostInstall 清理旧目录
+  PreviousDir := '';
+  RegQueryStringValue(HKCU, LegacyUninstallKey, 'InstallLocation', PreviousDir);
   if AppRunning() then
   begin
     if ConfirmStopAndStop() then
@@ -121,7 +145,7 @@ begin
       if not StopAllAppProcesses() then
       begin
         if not WizardSilent() then
-          MsgBox('无法结束 a4api 进程，请手动关闭后重试安装。', mbCriticalError, MB_OK);
+          MsgBox('无法结束 a4agent 进程，请手动关闭后重试安装。', mbCriticalError, MB_OK);
         Result := False;
       end;
     end
@@ -140,7 +164,7 @@ begin
       if not StopAllAppProcesses() then
       begin
         if not WizardSilent() then
-          MsgBox('无法结束 a4api 进程，请手动关闭后重试卸载。', mbCriticalError, MB_OK);
+          MsgBox('无法结束 a4agent 进程，请手动关闭后重试卸载。', mbCriticalError, MB_OK);
         Result := False;
       end;
     end
@@ -152,16 +176,35 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ErrorCode: Integer;
+  ExePath: String;
 begin
   if CurStep = ssInstall then
   begin
     // 升级/覆盖安装：先停旧代理、清掉旧 onedir 残留（_internal 中被删的 DLL 不会自动移除，
     // 且正在运行的代理会锁住 exe/DLL 导致拷贝失败），确保全新文件落盘。
-    if FileExists(ExpandConstant('{app}\{#MyAppExeName}')) then
+    ExePath := ExpandConstant('{app}\') + AppImageName;
+    if FileExists(ExePath) then
     begin
-      Exec(ExpandConstant('{app}\{#MyAppExeName}'), '--proxy-stop', '', SW_HIDE,
-           ewWaitUntilTerminated, ErrorCode);
+      Exec(ExePath, '--proxy-stop', '', SW_HIDE, ewWaitUntilTerminated, ErrorCode);
       DelTree(ExpandConstant('{app}\_internal'), True, True, True);
     end;
+    // 从 v0.3.x 升级：旧目录（Programs\a4api）里的旧 exe 也要优雅停掉后台代理
+    if (PreviousDir <> '') and (PreviousDir <> ExpandConstant('{app}')) then
+    begin
+      ExePath := PreviousDir + '\' + LegacyImageName;
+      if FileExists(ExePath) then
+        Exec(ExePath, '--proxy-stop', '', SW_HIDE, ewWaitUntilTerminated, ErrorCode);
+    end;
+  end;
+
+  if CurStep = ssPostInstall then
+  begin
+    // 改名迁移收尾：卸载注册表已指向新目录，旧安装目录与旧快捷方式一并清理
+    if (PreviousDir <> '') and (PreviousDir <> ExpandConstant('{app}')) and DirExists(PreviousDir) then
+      DelTree(PreviousDir, True, True, True);
+    DeleteFile(ExpandConstant('{userprograms}\a4api.lnk'));
+    DeleteFile(ExpandConstant('{userdesktop}\a4api.lnk'));
+    DeleteFile(ExpandConstant('{commonprograms}\a4api.lnk'));
+    DeleteFile(ExpandConstant('{commondesktop}\a4api.lnk'));
   end;
 end;
